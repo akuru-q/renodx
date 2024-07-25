@@ -1,5 +1,5 @@
-#ifndef SRC_RYZA1_SHARED_H_
-#define SRC_RYZA1_SHARED_H_
+#ifndef SRC_RYZA_SHARED_H_
+#define SRC_RYZA_SHARED_H_
 
 #ifndef __cplusplus
 #include "../../shaders/renodx.hlsl"
@@ -26,4 +26,4 @@ cbuffer cb13 : register(b13) {
 }
 #endif
 
-#endif  // SRC_RYZA1_SHARED_H_
+#endif  // SRC_RYZA_SHARED_H_
