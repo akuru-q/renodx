@@ -233,7 +233,7 @@ void main(
     float renoDRTContrast = 1.f;
     float renoDRTFlare = 0.f;
     float renoDRTShadows = 1.f;
-    float renoDRTDechroma = 0.5f;
+    float renoDRTDechroma = injectedData.colorGradeBlowout;
     float renoDRTSaturation = 1.15f;
     float renoDRTHighlights = 1.f;
 
