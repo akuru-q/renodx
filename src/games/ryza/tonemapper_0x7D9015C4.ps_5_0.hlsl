@@ -260,7 +260,8 @@ void main(
     
     if (injectedData.toneMapHueCorrection)
     {
-        outputColor = renodx::color::correct::Hue(outputColor, originalSdr);
+        float3 hueCorrected = renodx::color::correct::Hue(outputColor, originalSdr);
+        outputColor = lerp(outputColor, hueCorrected, injectedData.toneMapHueCorrection);
     }
     
     outputColor *= injectedData.toneMapGameNits; // Scale by user nits
