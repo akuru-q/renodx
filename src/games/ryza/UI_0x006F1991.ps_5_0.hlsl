@@ -28,7 +28,8 @@ void main(
   float4 fDest;
 
   r0.xyzw = sTex.Sample(__smpsTex_s, v2.xy).xyzw;
-  r1.x = dot(r0.xyz, float3(0.300000012,0.589999974,0.109999999));
+  //r1.x = dot(r0.xyz, float3(0.300000012,0.589999974,0.109999999)); // rec601 og code
+  r1.x = dot(r0.xyz, float3(0.2126390059f, 0.7151686788f, 0.0721923154f)); // fixed to rec709
   r1.xyz = r1.xxx + -r0.xyz;
   r1.w = 0;
   r0.xyzw = greyScaleRatio * r1.xyzw + r0.xyzw;

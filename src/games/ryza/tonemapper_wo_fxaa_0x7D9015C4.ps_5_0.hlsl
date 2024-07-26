@@ -179,7 +179,8 @@ void main(
     r1.xyz = smplLightShaftLinWork2_Tex.Sample(smplLightShaftLinWork2_s, v1.xy).xyz;
     r0.xyz = r1.xyz * vLightShaftPower.xyz + r0.xyz;
     r1.xyz = vColorScale.xyz * r0.xyz;
-    r0.w = dot(r1.xyz, float3(0.298909992, 0.586610019, 0.114480004)); // rec601
+    //r0.w = dot(r1.xyz, float3(0.298909992, 0.586610019, 0.114480004)); // rec601 og code
+    r0.w = dot(r1.xyz, float3(0.2126390059f, 0.7151686788f, 0.0721923154f)); // fixed to rec709
     r0.xyz = r0.xyz * vColorScale.xyz + -r0.www;
     r0.xyz = vSaturationScale.xyz * r0.xyz + r0.www;
     r1.xy = v1.xy * vScreenSize.xy + -vSpotParams.xy;
@@ -221,15 +222,20 @@ void main(
         originalSdr.rgb = sign(o0.rgb) * pow(abs(o0.rgb), 2.2f); //2.2 gamma
         outputColor = originalSdr;
     }
-    else
+    else 
     {
         outputColor = untonemapped;
+    }
+    
+    if (injectedData.toneMapType == 1.f)
+    {
         outputColor /= 1.717f; // makes untonemapped better match vanilla sdr mid-tones and shadows
     }
     
     outputColor = max(0, outputColor);
     
-    float vanillaMidGray = 0.18f;
+    float vanillaMidGray = 0.10f;
+    //float vanillaMidGray = injectedData.debugVanillaMidGrey;
     float renoDRTContrast = 1.f;
     float renoDRTFlare = 0.f;
     float renoDRTShadows = 1.f;
