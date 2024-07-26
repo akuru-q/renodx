@@ -81,6 +81,16 @@ renodx::utils::settings::Settings settings = {
         .max = 500.f,
     },
     new renodx::utils::settings::Setting{
+        .key = "toneMapHueCorrection",
+        .binding = &shader_injection.toneMapHueCorrection,
+        .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
+        .default_value = 1,
+        .can_reset = false,
+        .label = "Hue Correction",
+        .section = "Tone Mapping",
+        .tooltip = "Emulates hue shifting from the vanilla tonemapper",
+    },
+    new renodx::utils::settings::Setting{
         .key = "colorGradeExposure",
         .binding = &shader_injection.colorGradeExposure,
         .default_value = 1.f,
@@ -151,6 +161,7 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("toneMapPeakNits", 203.f);
   renodx::utils::settings::UpdateSetting("toneMapGameNits", 203.f);
   renodx::utils::settings::UpdateSetting("toneMapUINits", 203.f);
+  renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 0);
   renodx::utils::settings::UpdateSetting("colorGradeExposure", 1.f);
   renodx::utils::settings::UpdateSetting("colorGradeHighlights", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeShadows", 50.f);

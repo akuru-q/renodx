@@ -179,7 +179,7 @@ void main(
     r1.xyz = smplLightShaftLinWork2_Tex.Sample(smplLightShaftLinWork2_s, v1.xy).xyz;
     r0.xyz = r1.xyz * vLightShaftPower.xyz + r0.xyz;
     r1.xyz = vColorScale.xyz * r0.xyz;
-    r0.w = dot(r1.xyz, float3(0.298909992, 0.586610019, 0.114480004));
+    r0.w = dot(r1.xyz, float3(0.298909992, 0.586610019, 0.114480004)); // rec601
     r0.xyz = r0.xyz * vColorScale.xyz + -r0.www;
     r0.xyz = vSaturationScale.xyz * r0.xyz + r0.www;
     r1.xy = v1.xy * vScreenSize.xy + -vSpotParams.xy;
@@ -257,6 +257,11 @@ void main(
       renoDRTFlare);
     
     outputColor = renodx::tonemap::config::Apply(outputColor, config);
+    
+    if (injectedData.toneMapHueCorrection)
+    {
+        outputColor = renodx::color::correct::Hue(outputColor, originalSdr);
+    }
     
     outputColor *= injectedData.toneMapGameNits; // Scale by user nits
     
