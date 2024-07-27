@@ -282,9 +282,11 @@ void main(
     float3 originalSdr = o0.xyz;
     float3 outputColor;
     
+    originalSdr.rgb = sign(o0.rgb) * pow(abs(o0.rgb), 2.2f); //2.2 gamma
+    
     if (injectedData.toneMapType == 0.f)
     {
-        originalSdr.rgb = sign(o0.rgb) * pow(abs(o0.rgb), 2.2f); //2.2 gamma
+        //originalSdr.rgb = sign(o0.rgb) * pow(abs(o0.rgb), 2.2f); //2.2 gamma
         outputColor = originalSdr;
     }
     else
