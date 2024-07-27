@@ -91,6 +91,16 @@ renodx::utils::settings::Settings settings = {
         .parse = [](float value) { return value * 0.01f; },
     },
     new renodx::utils::settings::Setting{
+        .key = "blend",
+        .binding = &shader_injection.blend,
+        .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
+        .default_value = 1,
+        .can_reset = false,
+        .label = "Blend SDR/HDR",
+        .section = "Tone Mapping",
+        .tooltip = "Enable/Disable Blend",
+    },
+    new renodx::utils::settings::Setting{
         .key = "colorGradeExposure",
         .binding = &shader_injection.colorGradeExposure,
         .default_value = 1.f,

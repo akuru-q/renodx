@@ -291,6 +291,10 @@ void main(
     }
     else
     {
+        if (injectedData.blend) // blend sdr and untonemapped to better match indoor areas
+        {
+            untonemapped.xyz = lerp(originalSdr.xyz * 1.717f, untonemapped.xyz, clamp(originalSdr.xyz * 1.717f, 0.0, 1.0)); // make sure mid tones stay the same
+        }
         outputColor = untonemapped;
     }
     

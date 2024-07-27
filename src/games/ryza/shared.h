@@ -21,6 +21,7 @@ struct ShaderInjectData {
   float colorGradeBlowout;
   float fxBloom;
   float fxFxaa;
+  float blend;
   //float debugVanillaMidGrey;
 };
 
