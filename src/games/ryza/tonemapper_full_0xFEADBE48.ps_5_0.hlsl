@@ -245,8 +245,8 @@ void main(
     r1.xyz = smplLightShaftLinWork2_Tex.Sample(smplLightShaftLinWork2_s, v1.xy).xyz;
     r0.xyz = r1.xyz * vLightShaftPower.xyz + r0.xyz;
     r1.xyz = vColorScale.xyz * r0.xyz;
-    //r0.w = dot(r1.xyz, float3(0.298909992, 0.586610019, 0.114480004)); // rec601 og code
-    r0.w = dot(r1.xyz, float3(0.2126390059f, 0.7151686788f, 0.0721923154f)); // fixed to rec709
+    r0.w = dot(r1.xyz, float3(0.298909992, 0.586610019, 0.114480004)); // rec601 og code
+    //r0.w = dot(r1.xyz, float3(0.2126390059f, 0.7151686788f, 0.0721923154f)); // fixed to rec709
     r0.xyz = r0.xyz * vColorScale.xyz + -r0.www;
     r0.xyz = vSaturationScale.xyz * r0.xyz + r0.www;
     r1.xy = v1.xy * vScreenSize.xy + -vSpotParams.xy;
