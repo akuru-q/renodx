@@ -41,14 +41,15 @@ void main(
   //o0.xyz = exp2(r0.xyz);
   
   //new
-  o0.xyz = r1.xyz;
+  //o0.xyz = r1.xyz;
+  o0.xyz = r1.xyz * r0.www + r0.xyz; // keeps the UI animations
   
   // orig
   o0.w = 1;
   
   
   // artefact fix by just disabling the effect
-  o0.w = 0.f;
+  //o0.w = 0.f;
   //o0.xyz = sign(o0.rgb) * pow(abs(o0.xyz), 2.2f); 
   //o0.xyz*=2.f;
   //o0.xyzw *= 9999.0f; 
