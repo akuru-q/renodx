@@ -11,6 +11,7 @@
 #include <embed/0xCE8ED088.h>  // UI -- tutorial texts
 #include <embed/0x98AD427A.h>  // UI -- fixes artifacts
 #include <embed/0x9F6B73CA.h>  // UI -- fixes battle artifacts
+#include <embed/0x21E7062A.h>  // UI -- fixes clamp when swapping char in battle
 #include <embed/0x5D15CFEE.h>  // Videos
 #include <embed/0xFEADBE48.h>  // Tonemapper!!
 
@@ -30,6 +31,7 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0xCE8ED088),  // UI -- tutorial texts
     CustomShaderEntry(0x98AD427A),  // UI -- fixes artifacts
     CustomShaderEntry(0x9F6B73CA),  // UI -- fixes battle artifacts
+    CustomShaderEntry(0x21E7062A),  // UI -- fixes clamp when swapping char in battle
     CustomShaderEntry(0x5D15CFEE),  // Videos
     CustomShaderEntry(0xFEADBE48)   // Tonemapper!!
 
@@ -148,7 +150,7 @@ renodx::utils::settings::Settings settings = {
     new renodx::utils::settings::Setting{
         .key = "colorGradeBlowout",
         .binding = &shader_injection.colorGradeBlowout,
-        .default_value = 70.f,
+        .default_value = 50.f,
         .label = "Blowout",
         .section = "Color Grading",
         .tooltip = "Controls highlight desaturation due to overexposure.",
@@ -198,7 +200,10 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("colorGradeContrast", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeSaturation", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeBlowout", 50.f);
-  renodx::utils::settings::UpdateSetting("fxBloom", 50.f);
+  renodx::utils::settings::UpdateSetting("blend", 0);
+  // Start PostProcess effects on/off
+  renodx::utils::settings::UpdateSetting("fxBloom", 1);
+  renodx::utils::settings::UpdateSetting("fxFxaa", 1);
 }
 
 }  // namespace
