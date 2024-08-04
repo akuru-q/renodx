@@ -12,6 +12,8 @@
 #include <embed/0x98AD427A.h>  // UI -- fixes artifacts
 #include <embed/0x9F6B73CA.h>  // UI -- fixes battle artifacts
 #include <embed/0x21E7062A.h>  // UI -- fixes clamp when swapping char in battle
+#include <embed/0x3387BE75.h>  // UI -- map view
+
 #include <embed/0x5D15CFEE.h>  // Videos
 #include <embed/0xFEADBE48.h>  // Tonemapper!!
 #include <embed/0xEA314404.h>  // Wardrobe tonemapper
@@ -33,6 +35,7 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0x98AD427A),  // UI -- fixes artifacts
     CustomShaderEntry(0x9F6B73CA),  // UI -- fixes battle artifacts
     CustomShaderEntry(0x21E7062A),  // UI -- fixes clamp when swapping char in battle
+    CustomShaderEntry(0x3387BE75),  // UI -- map view
     CustomShaderEntry(0x5D15CFEE),  // Videos
     CustomShaderEntry(0xFEADBE48),  // Tonemapper!!
     CustomShaderEntry(0xEA314404),  // Wardrobe tonemapper
