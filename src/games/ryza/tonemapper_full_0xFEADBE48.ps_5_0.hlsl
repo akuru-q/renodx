@@ -1,5 +1,7 @@
 // ---- Created with 3Dmigoto v1.3.16 on Fri Jul 26 23:40:44 2024
+
 #include "./shared.h"
+#include "./tonemapper.hlsl" //Include our custom tonemapper
 
 cbuffer _Globals : register(b0)
 {
@@ -267,7 +269,7 @@ void main(
     
     float3 untonemapped = r0.xyz;
     
-    // original tonemapper
+    // Original Tonemapper Start [Hable + Gamma]
     r1.xyz = r0.xyz * float3(0.219999999, 0.219999999, 0.219999999) + float3(0.0299999993, 0.0299999993, 0.0299999993);
     r1.xyz = r0.xyz * r1.xyz + float3(0.00200000009, 0.00200000009, 0.00200000009);
     r2.xyz = r0.xyz * float3(0.219999999, 0.219999999, 0.219999999) + float3(0.300000012, 0.300000012, 0.300000012);
@@ -275,77 +277,41 @@ void main(
     r0.xyz = r1.xyz / r0.xyz;
     r0.xyz = float3(-0.0333000012, -0.0333000012, -0.0333000012) + r0.xyz;
     r0.xyz = SimulateHDRParams.xxx * r0.xyz;
-    r0.xyz = log2(r0.xyz);
-    r0.xyz = fGamma * r0.xyz;
-    o0.xyz = exp2(r0.xyz);
+    //r0.xyz = log2(r0.xyz);
+    //r0.xyz = fGamma * r0.xyz;
+    //o0.xyz = exp2(r0.xyz);
+    // Original Tonemapper End
     
-    float3 originalSdr = o0.xyz;
+    float3 vanillaColor = r0.xyz;
+    
+    // Second Hable run added to inject 0.18 midgrey
+    r0.rgb = (0.18f, 0.18f, 0.18f);
+    
+    r1.xyz = r0.xyz * float3(0.219999999, 0.219999999, 0.219999999) + float3(0.0299999993, 0.0299999993, 0.0299999993);
+    r1.xyz = r0.xyz * r1.xyz + float3(0.00200000009, 0.00200000009, 0.00200000009);
+    r2.xyz = r0.xyz * float3(0.219999999, 0.219999999, 0.219999999) + float3(0.300000012, 0.300000012, 0.300000012);
+    r0.xyz = r0.xyz * r2.xyz + float3(0.0599999987, 0.0599999987, 0.0599999987);
+    r0.xyz = r1.xyz / r0.xyz;
+    r0.xyz = float3(-0.0333000012, -0.0333000012, -0.0333000012) + r0.xyz;
+    r0.xyz = SimulateHDRParams.xxx * r0.xyz;
+    // Second Hable End
+    
+    float3 vanMidGray = r0.xyz;
+    
     float3 outputColor;
     
-    originalSdr.rgb = sign(o0.rgb) * pow(abs(o0.rgb), 2.2f); //2.2 gamma
+    outputColor = applyUserTonemap(untonemapped, vanillaColor, renodx::color::y::from::BT709(vanMidGray.rgb)); //Apply our custom tonemapper from tonemapper.hlsl
     
-    if (injectedData.toneMapType == 0.f)
-    {
-        //originalSdr.rgb = sign(o0.rgb) * pow(abs(o0.rgb), 2.2f); //2.2 gamma
-        outputColor = originalSdr;
-    }
-    else
-    {
-        if (injectedData.blend) // blend sdr and untonemapped to better match indoor areas
-        {
-            untonemapped.xyz = lerp(originalSdr.xyz * 1.717f, untonemapped.xyz, clamp(originalSdr.xyz, 0.0, 1.0)); // make sure mid tones stay the same
-        }
-        outputColor = untonemapped;
-    }
-    
-    if (injectedData.toneMapType == 1.f)
-    {
-        outputColor /= 1.717f; // makes untonemapped better match vanilla sdr mid-tones and shadows
-    }
-    
-    outputColor = max(0, outputColor);
-    
-    float vanillaMidGray = 0.10f;
-    //float vanillaMidGray = injectedData.debugVanillaMidGrey;
-    float renoDRTContrast = 1.f;
-    float renoDRTFlare = 0.f;
-    float renoDRTShadows = 1.f;
-    float renoDRTDechroma = injectedData.colorGradeBlowout;
-    float renoDRTSaturation = 1.15f;
-    float renoDRTHighlights = 1.f;
-
-    renodx::tonemap::Config config = renodx::tonemap::config::Create(
-      injectedData.toneMapType,
-      injectedData.toneMapPeakNits,
-      injectedData.toneMapGameNits,
-      0,
-      injectedData.colorGradeExposure,
-      injectedData.colorGradeHighlights,
-      injectedData.colorGradeShadows,
-      injectedData.colorGradeContrast,
-      injectedData.colorGradeSaturation,
-      vanillaMidGray,
-      vanillaMidGray * 100.f,
-      renoDRTHighlights,
-      renoDRTShadows,
-      renoDRTContrast,
-      renoDRTSaturation,
-      renoDRTDechroma,
-      renoDRTFlare);
-    
-    outputColor = renodx::tonemap::config::Apply(outputColor, config);
-    
-    if (injectedData.toneMapHueCorrection)
-    {
-        float3 hueCorrected = renodx::color::correct::Hue(outputColor, originalSdr);
-        outputColor = lerp(outputColor, hueCorrected, injectedData.toneMapHueCorrection);
-    }
+    outputColor = sign(outputColor) * pow(abs(outputColor), fGamma);
+    outputColor = sign(outputColor) * pow(abs(outputColor), 2.2f);
     
     outputColor *= injectedData.toneMapGameNits; // Scale by user nits
-    
+
     outputColor.rgb /= 80.f;
     
-    o0.xyz = outputColor.xyz;
+    o0.xyz = outputColor.xyz; //end custom tonemapper
+    
+    o0.w = r0.w;
     
     return;
 }
