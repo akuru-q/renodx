@@ -162,12 +162,12 @@ renodx::utils::settings::Settings settings = {
     new renodx::utils::settings::Setting{
         .key = "fxBloom",
         .binding = &shader_injection.fxBloom,
-        .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
-        .default_value = 1,
-        .can_reset = false,
-        .label = "Bloom + DoF",
+        .default_value = 50.f,
+        .label = "Bloom",
         .section = "Effects",
-        .tooltip = "Enable/Disable Bloom + Depth of Field",
+        .tooltip = "Controls Bloom Strength",
+        .max = 100.f,
+        .parse = [](float value) { return value * 0.02f; },
     },
     new renodx::utils::settings::Setting{
         .key = "fxaa",
@@ -204,7 +204,7 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("colorGradeBlowout", 50.f);
   renodx::utils::settings::UpdateSetting("blend", 0);
   // Start PostProcess effects on/off
-  renodx::utils::settings::UpdateSetting("fxBloom", 1);
+  renodx::utils::settings::UpdateSetting("fxBloom", 50.f);
   renodx::utils::settings::UpdateSetting("fxFxaa", 1);
 }
 

@@ -233,9 +233,9 @@ void main(
     r0.xyz = r1.xyz * r0.www + r0.xyz;
     r0.xyz = max(float3(0, 0, 0), r0.xyz);
     
-    if (injectedData.fxBloom == 1) { //Bloom on/off
+    if (injectedData.fxBloom) { //Bloom on/off
         r1.xyz = smplBloom_Tex.Sample(smplBloom_s, v1.xy).xyz;
-        r0.xyz = r1.xyz * fBloomWeight + r0.xyz;
+        r0.xyz = r1.xyz * (fBloomWeight * injectedData.fxBloom) + r0.xyz;
     }
     
     r1.xyz = smplStar_Tex.Sample(smplStar_s, v1.xy).xyz;
@@ -293,7 +293,7 @@ void main(
     {
         if (injectedData.blend) // blend sdr and untonemapped to better match indoor areas
         {
-            untonemapped.xyz = lerp(originalSdr.xyz * 1.717f, untonemapped.xyz, clamp(originalSdr.xyz * 1.717f, 0.0, 1.0)); // make sure mid tones stay the same
+            untonemapped.xyz = lerp(originalSdr.xyz * 1.717f, untonemapped.xyz, clamp(originalSdr.xyz, 0.0, 1.0)); // make sure mid tones stay the same
         }
         outputColor = untonemapped;
     }
