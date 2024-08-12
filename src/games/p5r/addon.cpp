@@ -304,13 +304,14 @@ bool OnDrawIndexed(
 
   auto& shader_state = cmd_list->get_private_data<renodx::utils::shader::CommandListData>();
 
-  if (shader_state.pixel_shader_hash == 0xC6D14699) return false;  // Video
-  if (shader_state.pixel_shader_hash == 0xB6E26AC7) {
+  auto pixel_shader_hash = shader_state.GetCurrentPixelShaderHash();
+  if (pixel_shader_hash == 0xC6D14699) return false;  // Video
+  if (pixel_shader_hash == 0xB6E26AC7) {
     g_completed_render = true;
     return false;
   }
   if (!g_completed_render) return false;
-  if (!g_8bit_hashes.contains(shader_state.pixel_shader_hash)) return false;
+  if (!g_8bit_hashes.contains(pixel_shader_hash)) return false;
 
   auto& swapchain_state = cmd_list->get_private_data<renodx::utils::swapchain::CommandListData>();
 
@@ -417,61 +418,18 @@ void OnInitPipeline(
     uint32_t subobject_count,
     const reshade::api::pipeline_subobject* subobjects,
     reshade::api::pipeline pipeline) {
-  bool unsafe = false;
-  for (uint32_t i = 0; i < subobject_count; ++i) {
-    if (unsafe) break;
+  if (!renodx::utils::pipeline::HasSDRAlphaBlend({subobjects, subobject_count})) return;
 
-    const auto& subobject = subobjects[i];
-    if (subobject.type != reshade::api::pipeline_subobject_type::blend_state) continue;
-    for (uint32_t j = 0; j < subobject.count; ++j) {
-      auto& desc = static_cast<reshade::api::blend_desc*>(subobject.data)[j];
-      if (!desc.blend_enable[0]) continue;
-
-      if (((desc.render_target_write_mask[0] & 0x1) != 0)
-          || ((desc.render_target_write_mask[0] & 0x2) != 0)
-          || ((desc.render_target_write_mask[0] & 0x4) != 0)) {
-        if (desc.color_blend_op[0] != reshade::api::blend_op::min
-            && desc.color_blend_op[0] != reshade::api::blend_op::max) {
-          if (
-              desc.source_color_blend_factor[0] == reshade::api::blend_factor::dest_alpha
-              || desc.source_color_blend_factor[0] == reshade::api::blend_factor::one_minus_dest_alpha
-              || desc.dest_color_blend_factor[0] == reshade::api::blend_factor::dest_alpha
-              || desc.dest_color_blend_factor[0] == reshade::api::blend_factor::one_minus_dest_alpha) {
-            unsafe = true;
-            break;
-          }
-        }
-      }
-      if ((desc.render_target_write_mask[0] & 0x8) != 0) {
-        if (desc.alpha_blend_op[0] == reshade::api::blend_op::min
-            || desc.alpha_blend_op[0] == reshade::api::blend_op::max) {
-          unsafe = true;
-          break;
-        }
-        if (
-            desc.source_alpha_blend_factor[0] == reshade::api::blend_factor::dest_alpha
-            || desc.source_alpha_blend_factor[0] == reshade::api::blend_factor::one_minus_dest_alpha
-            || desc.dest_alpha_blend_factor[0] == reshade::api::blend_factor::one
-            || desc.dest_alpha_blend_factor[0] == reshade::api::blend_factor::dest_alpha
-            || desc.dest_alpha_blend_factor[0] == reshade::api::blend_factor::one_minus_dest_alpha) {
-          unsafe = true;
-          break;
-        }
-      }
-    }
-  }
-  if (unsafe) {
-    auto& data = device->get_private_data<DeviceData>();
-    const std::unique_lock lock(data.mutex);
-    data.unsafe_blend_pipelines.emplace(pipeline.handle);
-  }
+  auto& data = device->get_private_data<DeviceData>();
+  const std::unique_lock lock(data.mutex);
+  data.unsafe_blend_pipelines.emplace(pipeline.handle);
 }
 
 void OnBindPipeline(
     reshade::api::command_list* cmd_list,
-    reshade::api::pipeline_stage type,
+    reshade::api::pipeline_stage stages,
     reshade::api::pipeline pipeline) {
-  if (type != reshade::api::pipeline_stage::output_merger) return;
+  if (stages != reshade::api::pipeline_stage::output_merger) return;
   auto& data = cmd_list->get_private_data<CommandListData>();
   data.last_output_merger = pipeline;
 }

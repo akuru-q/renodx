@@ -10,11 +10,16 @@
 #include <dxgi.h>
 #include <dxgi1_6.h>
 
+#include <array>
+#include <cstdint>
 #include <cstdio>
+#include <initializer_list>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <include/reshade.hpp>
@@ -22,10 +27,12 @@
 #include "../utils/descriptor.hpp"
 #include "../utils/float16.hpp"
 #include "../utils/format.hpp"
+#include "../utils/hash.hpp"
 #include "../utils/resource.hpp"
 #include "../utils/swapchain.hpp"
 
 namespace renodx::mods::swapchain {
+
 struct SwapChainUpgradeTarget {
   reshade::api::format old_format = reshade::api::format::r8g8b8a8_unorm;
   reshade::api::format new_format = reshade::api::format::r16g16b16a16_float;
@@ -37,19 +44,29 @@ struct SwapChainUpgradeTarget {
   reshade::api::resource_usage usage = reshade::api::resource_usage::undefined;
   reshade::api::resource_usage state = reshade::api::resource_usage::undefined;
 
-  const float ASPECT_RATIO_IGNORE = -1.f;
-  const float ASPECT_RATIO_BACK_BUFFER = 0.f;
-  float aspect_ratio = ASPECT_RATIO_IGNORE;
+  static const int16_t BACK_BUFFER = -1;
+  static const int16_t ANY = -2;
+  float aspect_ratio = ANY;
 
   uint32_t usage_set = 0;
   uint32_t usage_unset = 0;
 
   bool ignore_reset = false;
 
-  std::unordered_map<reshade::api::resource_usage, std::unordered_map<reshade::api::format, reshade::api::format>> view_upgrades;
+  std::unordered_map<
+      std::pair<reshade::api::resource_usage, reshade::api::format>,
+      reshade::api::format, utils::hash::HashPair>
+      view_upgrades;
 
-  [[nodiscard]]
-  bool CheckResourceDesc(
+  struct Dimensions {
+    int16_t width = ANY;
+    int16_t height = ANY;
+    int16_t depth = ANY;
+  };
+  Dimensions dimensions = {BACK_BUFFER, BACK_BUFFER, BACK_BUFFER};
+  Dimensions new_dimensions = {ANY, ANY, ANY};
+
+  [[nodiscard]] bool CheckResourceDesc(
       reshade::api::resource_desc desc,
       reshade::api::resource_desc back_buffer_desc,
       reshade::api::resource_usage state = reshade::api::resource_usage::undefined) const {
@@ -61,20 +78,33 @@ struct SwapChainUpgradeTarget {
       if (this->state != state) return false;
     }
     if (!this->ignore_size) {
-      if (this->aspect_ratio == ASPECT_RATIO_IGNORE) {
-        if (desc.texture.width != back_buffer_desc.texture.width) return false;
-        if (desc.texture.height != back_buffer_desc.texture.height) return false;
+      if (this->aspect_ratio == ANY) {
+        if (dimensions.width == BACK_BUFFER) {
+          if (desc.texture.width != back_buffer_desc.texture.width) return false;
+        } else if (dimensions.width > 0) {
+          if (desc.texture.width != dimensions.width) return false;
+        }
+
+        if (dimensions.height == BACK_BUFFER) {
+          if (desc.texture.height != back_buffer_desc.texture.height) return false;
+        } else if (dimensions.height > 0) {
+          if (desc.texture.height != dimensions.height) return false;
+        }
+
+        if (dimensions.depth >= 0) {
+          if (desc.texture.depth_or_layers != dimensions.depth) return false;
+        }
       } else {
         const float view_ratio = static_cast<float>(desc.texture.width) / static_cast<float>(desc.texture.height);
         float target_ratio;
-        if (this->aspect_ratio == ASPECT_RATIO_BACK_BUFFER) {
+        if (this->aspect_ratio == BACK_BUFFER) {
           target_ratio = back_buffer_desc.texture.width / back_buffer_desc.texture.height;
         } else {
           target_ratio = this->aspect_ratio;
         }
-        static const float tolerance = 0.0001f;
+        static const float TOLERANCE = 0.0001f;
         const float diff = std::abs(view_ratio - target_ratio);
-        if (diff > tolerance) return false;
+        if (diff > TOLERANCE) return false;
       }
     }
     return true;
@@ -170,7 +200,7 @@ struct __declspec(uuid("809df2f6-e1c7-4d93-9c6e-fa88dd960b7c")) DeviceData {
   std::unordered_map<uint64_t, reshade::api::resource> rebuilt_buffers;
 
   // <descriptor_table.handle[index], <clone_resource_view.handle>>
-  std::unordered_map<std::pair<uint64_t, uint32_t>, uint64_t, renodx::utils::descriptor::HashPair> table_descriptor_resource_view_replacements;
+  std::unordered_map<std::pair<uint64_t, uint32_t>, uint64_t, utils::hash::HashPair> table_descriptor_resource_view_replacements;
 
   // <descriptor_heap.handle, std::map<base_offset, descriptor_table>>
   std::unordered_map<uint64_t, std::unordered_map<uint32_t, HeapDescriptorInfo*>> heap_descriptor_infos;
@@ -186,8 +216,6 @@ struct __declspec(uuid("0a2b51ad-ef13-4010-81a4-37a4a0f857a6")) CommandListData 
 
 static std::vector<SwapChainUpgradeTarget> swap_chain_upgrade_targets = {};
 
-static reshade::api::effect_runtime* current_effect_runtime = nullptr;
-static reshade::api::color_space current_color_space = reshade::api::color_space::unknown;
 static reshade::api::format target_format = reshade::api::format::r16g16b16a16_float;
 static reshade::api::color_space target_color_space = reshade::api::color_space::extended_srgb_linear;
 
@@ -294,43 +322,6 @@ static bool OnCreateSwapchain(reshade::api::swapchain_desc& desc, void* hwnd) {
          || (old_present_flags != desc.present_flags);
 }
 
-static bool ChangeColorSpace(reshade::api::swapchain* swapchain, reshade::api::color_space color_space) {
-  DXGI_COLOR_SPACE_TYPE dx_color_space = DXGI_COLOR_SPACE_CUSTOM;
-  switch (color_space) {
-    case reshade::api::color_space::srgb_nonlinear:       dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709; break;
-    case reshade::api::color_space::extended_srgb_linear: dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709; break;
-    case reshade::api::color_space::hdr10_st2084:         dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020; break;
-    case reshade::api::color_space::hdr10_hlg:            dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020; break;
-    default:                                              return false;
-  }
-
-  auto* native_swapchain = reinterpret_cast<IDXGISwapChain*>(swapchain->get_native());
-
-  IDXGISwapChain4* swapchain4;
-
-  if (!SUCCEEDED(native_swapchain->QueryInterface(IID_PPV_ARGS(&swapchain4)))) {
-    reshade::log_message(reshade::log_level::error, "changeColorSpace(Failed to get native swap chain)");
-    return false;
-  }
-
-  const HRESULT hr = swapchain4->SetColorSpace1(dx_color_space);
-  swapchain4->Release();
-  swapchain4 = nullptr;
-  if (!SUCCEEDED(hr)) {
-    return false;
-  }
-
-  current_color_space = color_space;
-
-  if (current_effect_runtime != nullptr) {
-    current_effect_runtime->set_color_space(current_color_space);
-  } else {
-    reshade::log_message(reshade::log_level::warning, "changeColorSpace(effectRuntimeNotSet)");
-  }
-
-  return true;
-}
-
 static void CheckSwapchainSize(
     reshade::api::swapchain* swapchain,
     reshade::api::resource_desc buffer_desc) {
@@ -385,73 +376,6 @@ static void CheckSwapchainSize(
   }
 }
 
-static void ResizeBuffer(
-    reshade::api::swapchain* swapchain) {
-  auto* native_swapchain = reinterpret_cast<IDXGISwapChain*>(swapchain->get_native());
-
-  IDXGISwapChain4* swapchain4;
-
-  if (FAILED(native_swapchain->QueryInterface(IID_PPV_ARGS(&swapchain4)))) {
-    reshade::log_message(reshade::log_level::error, "resize_buffer(Failed to get native swap chain)");
-    return;
-  }
-
-  DXGI_SWAP_CHAIN_DESC1 desc;
-  if (FAILED(swapchain4->GetDesc1(&desc))) {
-    reshade::log_message(reshade::log_level::error, "resize_buffer(Failed to get desc)");
-    swapchain4->Release();
-    swapchain4 = nullptr;
-    return;
-  }
-
-  auto new_format = (target_format == reshade::api::format::r16g16b16a16_float)
-                        ? DXGI_FORMAT_R16G16B16A16_FLOAT
-                        : DXGI_FORMAT_R10G10B10A2_UNORM;
-  if (desc.Format == new_format) {
-    reshade::log_message(reshade::log_level::debug, "resize_buffer(Format OK)");
-    swapchain4->Release();
-    swapchain4 = nullptr;
-    return;
-  }
-  reshade::log_message(reshade::log_level::debug, "resize_buffer(Resizing...)");
-
-  const HRESULT hr = swapchain4->ResizeBuffers(
-      desc.BufferCount == 1 ? 2 : 0,
-      desc.Width,
-      desc.Height,
-      new_format,
-      desc.Flags);
-
-  swapchain4->Release();
-  swapchain4 = nullptr;
-
-  if (hr == DXGI_ERROR_INVALID_CALL) {
-    std::stringstream s;
-    s << "mods::swapchain::ResizeBuffer(DXGI_ERROR_INVALID_CALL";
-    s << ", BufferCount = " << desc.BufferCount;
-    s << ", Width = " << desc.Width;
-    s << ", Height = " << desc.Height;
-    s << ", Format = " << desc.Format;
-    s << ", Flags = 0x" << std::hex << desc.Flags << std::dec;
-    s << ')';
-    reshade::log_message(reshade::log_level::error, s.str().c_str());
-    return;
-  }
-  std::stringstream s;
-  s << "mods::swapchain::ResizeBuffer(";
-  s << "resize: " << hr;
-  s << ")";
-  reshade::log_message(reshade::log_level::info, s.str().c_str());
-
-  // Reshade doesn't actually inspect colorspace
-  // auto colorspace = swapchain->get_color_space();
-  if (ChangeColorSpace(swapchain, target_color_space)) {
-    reshade::log_message(reshade::log_level::info, "resize_buffer(Color Space: OK)");
-  } else {
-    reshade::log_message(reshade::log_level::error, "resize_buffer(Color Space: Failed.)");
-  }
-}
-
 static void OnPresentForResizeBuffer(
     reshade::api::command_queue* queue,
     reshade::api::swapchain* swapchain,
@@ -461,7 +385,7 @@ static void OnPresentForResizeBuffer(
     const reshade::api::rect* dirty_rects) {
   if (use_resize_buffer_on_demand && !use_resize_buffer_on_present) return;
   reshade::unregister_event<reshade::addon_event::present>(OnPresentForResizeBuffer);
-  ResizeBuffer(swapchain);
+  renodx::utils::swapchain::ResizeBuffer(swapchain, target_format, target_color_space);
 }
 
 static void OnInitSwapchain(reshade::api::swapchain* swapchain) {
@@ -488,17 +412,11 @@ static void OnInitSwapchain(reshade::api::swapchain* swapchain) {
     if (use_resize_buffer_on_demand || use_resize_buffer_on_present) {
       reshade::register_event<reshade::addon_event::present>(OnPresentForResizeBuffer);
     } else if (!use_resize_buffer_on_set_full_screen) {
-      ResizeBuffer(swapchain);
+      renodx::utils::swapchain::ResizeBuffer(swapchain, target_format, target_color_space);
     }
     return;
   }
-  // Reshade doesn't actually inspect colorspace
-  // auto colorspace = swapchain->get_color_space();
-  if (ChangeColorSpace(swapchain, target_color_space)) {
-    reshade::log_message(reshade::log_level::info, "initSwapChain(Color Space: OK)");
-  } else {
-    reshade::log_message(reshade::log_level::error, "initSwapChain(Color Space: Failed.)");
-  }
+  renodx::utils::swapchain::ChangeColorSpace(swapchain, target_color_space);
 }
 
 static bool OnCreateResource(
@@ -612,6 +530,23 @@ static bool OnCreateResource(
       s.str().c_str());
 
   desc.texture.format = found_target->new_format;
+
+  if (found_target->new_dimensions.width == SwapChainUpgradeTarget::BACK_BUFFER) {
+    desc.texture.width = device_back_buffer_desc.texture.width;
+  } else if (found_target->new_dimensions.width >= 0) {
+    desc.texture.width = found_target->new_dimensions.width;
+  }
+
+  if (found_target->new_dimensions.height == SwapChainUpgradeTarget::BACK_BUFFER) {
+    desc.texture.height = device_back_buffer_desc.texture.height;
+  } else if (found_target->new_dimensions.height >= 0) {
+    desc.texture.height = found_target->new_dimensions.height;
+  }
+
+  if (found_target->new_dimensions.depth >= 0) {
+    desc.texture.depth_or_layers = found_target->new_dimensions.depth;
+  }
+
   desc.usage = static_cast<reshade::api::resource_usage>(static_cast<uint32_t>(desc.usage) | found_target->usage_set & ~found_target->usage_unset);
 
   private_data.original_resource = original_resource;
@@ -998,14 +933,10 @@ static bool OnCreateResourceView(
              pair != private_data.resource_upgrade_targets.end()) {
     auto* target = pair->second;
     bool found_upgrade = false;
-    if (auto pair2 = target->view_upgrades.find(usage_type);
+    if (auto pair2 = target->view_upgrades.find({usage_type, desc.format});
         pair2 != target->view_upgrades.end()) {
-      auto format_map = pair2->second;
-      if (auto pair3 = format_map.find(desc.format);
-          pair3 != format_map.end()) {
-        new_desc.format = pair3->second;
-        found_upgrade = true;
-      }
+      new_desc.format = pair2->second;
+      found_upgrade = true;
     }
     if (!found_upgrade) {
       switch (desc.format) {
@@ -2426,24 +2357,9 @@ static void OnBarrier(
   }
 }
 
-static void OnInitEffectRuntime(reshade::api::effect_runtime* runtime) {
-  current_effect_runtime = runtime;
-  reshade::log_message(reshade::log_level::info, "Effect runtime created.");
-  if (current_color_space != reshade::api::color_space::unknown) {
-    runtime->set_color_space(current_color_space);
-    reshade::log_message(reshade::log_level::info, "Effect runtime colorspace updated.");
-  }
-}
-
-static void OnDestroyEffectRuntime(reshade::api::effect_runtime* runtime) {
-  if (current_effect_runtime == runtime) {
-    current_effect_runtime = nullptr;
-  }
-}
-
 static bool OnSetFullscreenState(reshade::api::swapchain* swapchain, bool fullscreen, void* hmonitor) {
   if (use_resize_buffer && use_resize_buffer_on_set_full_screen) {
-    ResizeBuffer(swapchain);
+    renodx::utils::swapchain::ResizeBuffer(swapchain, target_format, target_color_space);
   }
   auto* device = swapchain->get_device();
   if (device == nullptr) return false;
@@ -2544,9 +2460,6 @@ static void Use(DWORD fdw_reason) {
         // reshade::register_event<reshade::addon_event::barrier>(on_barrier);
       }
 
-      reshade::register_event<reshade::addon_event::init_effect_runtime>(OnInitEffectRuntime);
-      reshade::register_event<reshade::addon_event::destroy_effect_runtime>(OnDestroyEffectRuntime);
-
       reshade::register_event<reshade::addon_event::set_fullscreen_state>(OnSetFullscreenState);
 
       break;
@@ -2562,9 +2475,6 @@ static void Use(DWORD fdw_reason) {
 
       reshade::unregister_event<reshade::addon_event::create_resource_view>(OnCreateResourceView);
       reshade::unregister_event<reshade::addon_event::init_resource_view>(OnInitResourceView);
-
-      reshade::unregister_event<reshade::addon_event::init_effect_runtime>(OnInitEffectRuntime);
-      reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(OnDestroyEffectRuntime);
 
       reshade::unregister_event<reshade::addon_event::set_fullscreen_state>(OnSetFullscreenState);
 

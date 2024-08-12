@@ -6,11 +6,12 @@
 #pragma once
 
 #include <include/reshade.hpp>
+#include <span>
 #include "./format.hpp"
 
 namespace renodx::utils::pipeline {
 
-static reshade::api::pipeline_subobject* ClonePipelineSubObjects(uint32_t subobject_count, const reshade::api::pipeline_subobject* subobjects) {
+static reshade::api::pipeline_subobject* ClonePipelineSubObjects(const reshade::api::pipeline_subobject* subobjects, uint32_t subobject_count) {
   auto* new_subobjects = new reshade::api::pipeline_subobject[subobject_count];
   memcpy(new_subobjects, subobjects, sizeof(reshade::api::pipeline_subobject) * subobject_count);
   for (uint32_t i = 0; i < subobject_count; ++i) {
@@ -124,6 +125,71 @@ static reshade::api::pipeline_subobject* ClonePipelineSubObjects(uint32_t subobj
   }
 
   return new_subobjects;
+}
+
+static void DestroyPipelineSubobjects(std::span<reshade::api::pipeline_subobject> subobjects) {
+  for (auto& subobject : subobjects) {
+    switch (subobject.type) {
+      case reshade::api::pipeline_subobject_type::vertex_shader:
+      case reshade::api::pipeline_subobject_type::compute_shader:
+      case reshade::api::pipeline_subobject_type::pixel_shader:   {
+        auto* desc = static_cast<reshade::api::shader_desc*>(subobject.data);
+        free(const_cast<void*>(desc->code));
+        desc->code = nullptr;
+        break;
+      }
+      default:
+        break;
+    }
+
+    free(subobject.data);
+    subobject.data = nullptr;
+  }
+}
+
+static void DestroyPipelineSubobjects(reshade::api::pipeline_subobject* subobjects, uint32_t subobject_count) {
+  DestroyPipelineSubobjects({subobjects, subobjects + subobject_count});
+  delete[] subobjects;
+}
+
+static bool HasSDRAlphaBlend(std::span<const reshade::api::pipeline_subobject> subobjects) {
+  for (const auto& subobject : subobjects) {
+    if (subobject.type != reshade::api::pipeline_subobject_type::blend_state) continue;
+    for (uint32_t j = 0; j < subobject.count; ++j) {
+      auto& desc = static_cast<reshade::api::blend_desc*>(subobject.data)[j];
+      if (!desc.blend_enable[0]) continue;
+
+      if (((desc.render_target_write_mask[0] & 0x1) != 0)
+          || ((desc.render_target_write_mask[0] & 0x2) != 0)
+          || ((desc.render_target_write_mask[0] & 0x4) != 0)) {
+        if (desc.color_blend_op[0] != reshade::api::blend_op::min
+            && desc.color_blend_op[0] != reshade::api::blend_op::max) {
+          if (
+              desc.source_color_blend_factor[0] == reshade::api::blend_factor::dest_alpha
+              || desc.source_color_blend_factor[0] == reshade::api::blend_factor::one_minus_dest_alpha
+              || desc.dest_color_blend_factor[0] == reshade::api::blend_factor::dest_alpha
+              || desc.dest_color_blend_factor[0] == reshade::api::blend_factor::one_minus_dest_alpha) {
+            return true;
+          }
+        }
+      }
+      if ((desc.render_target_write_mask[0] & 0x8) != 0) {
+        if (desc.alpha_blend_op[0] == reshade::api::blend_op::min
+            || desc.alpha_blend_op[0] == reshade::api::blend_op::max) {
+          return true;
+        }
+        if (
+            desc.source_alpha_blend_factor[0] == reshade::api::blend_factor::dest_alpha
+            || desc.source_alpha_blend_factor[0] == reshade::api::blend_factor::one_minus_dest_alpha
+            || desc.dest_alpha_blend_factor[0] == reshade::api::blend_factor::one
+            || desc.dest_alpha_blend_factor[0] == reshade::api::blend_factor::dest_alpha
+            || desc.dest_alpha_blend_factor[0] == reshade::api::blend_factor::one_minus_dest_alpha) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 }  // namespace renodx::utils::pipeline
