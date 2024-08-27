@@ -382,25 +382,19 @@ void main(
         o0.xyzw = r0.xyzw;
     }
     
-    float4 luttedSdr = o0.xyzw; // needs HDR10 -> linear conv
-        
-    // make luttedSdr closer to real SDR
-    luttedSdr.xyz = sign(luttedSdr.xyz) * pow(abs(luttedSdr.xyz), 1.f / 2.2f);
-    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb);
-    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb);
-    //luttedSdr.rgb /= 1.2f; // 85 nits
-        
-    //luttedSdr.rgb = renodx::color::bt2020::from::PQ(luttedSdr.rgb);
-    luttedSdr.rgb = mul(renodx::color::BT2020_TO_BT709_MAT, luttedSdr.rgb);
-    //
-    //o0.rgb = luttedSdr.rgb;
-    //return;
+    float4 luttedSdr = o0.xyzw;
     
     // -----------
     // custom code
-    
-    //o0.rgb /= 8.f; // (idk why this is needed, but otherwise too bright)
-    
+        
+    // make luttedSdr closer to real SDR
+    luttedSdr.rgb = renodx::math::SafePow(luttedSdr.rgb, 1.f / 2.2f);
+    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb);
+    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb);
+        
+    //luttedSdr.rgb = renodx::color::bt2020::from::PQ(luttedSdr.rgb);
+    luttedSdr.rgb = mul(renodx::color::BT2020_TO_BT709_MAT, luttedSdr.rgb);
+        
     // tonemapper
         
     float3 outputColor = untonemapped.rgb;
@@ -471,15 +465,16 @@ void main(
     
     o0.rgb = outputColor.rgb;
     
-    o0.rgb = renodx::math::SafePow(o0.rgb, 2.2); // 2.2 gamma
+    // Gamma correction
+    o0.rgb = injectedData.toneMapGammaCorrection
+               ? renodx::math::SafePow(o0.rgb, 2.2f)
+               : renodx::color::bt709::from::SRGB(o0.rgb);
     
     o0.rgb *= injectedData.toneMapGameNits; // scale by game brightness
     
     // output expected as PQ, so we need linear > PQ conversion
-    
     o0.rgb = mul(renodx::color::BT709_TO_BT2020_MAT, o0.rgb);   // use bt2020
-    o0.rgb /= 10000.f;                                        // Scale for PQ
-    //o0.rgb /= 8.f;                                              // (idk why this is needed)
+    o0.rgb /= 10000.f;                                          // Scale for PQ
     o0.rgb = max(0, o0.rgb);                                    // clamp out of gamut
     o0.rgb = renodx::color::pq::from::BT2020(o0.rgb);           // convert to PQ
     o0.rgb = min(1.f, o0.rgb);                                  // clamp PQ (10K nits)

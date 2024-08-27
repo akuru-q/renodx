@@ -71,6 +71,15 @@ renodx::utils::settings::Settings settings = {
         .max = 500.f,
     },
     new renodx::utils::settings::Setting{
+        .key = "toneMapGammaCorrection",
+        .binding = &shader_injection.toneMapGammaCorrection,
+        .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
+        .can_reset = false,
+        .label = "Gamma Correction",
+        .section = "Tone Mapping",
+        .tooltip = "Emulates a 2.2 EOTF (use with HDR or sRGB)",
+    },
+    new renodx::utils::settings::Setting{
         .key = "toneMapHueCorrection",
         .binding = &shader_injection.toneMapHueCorrection,
         .default_value = 50.f,
@@ -191,6 +200,7 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("toneMapPeakNits", 203.f);
   renodx::utils::settings::UpdateSetting("toneMapGameNits", 203.f);
   renodx::utils::settings::UpdateSetting("toneMapUINits", 203.f);
+  renodx::utils::settings::UpdateSetting("toneMapGammaCorrection", 0);
   renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 0.f);
   renodx::utils::settings::UpdateSetting("colorGradeExposure", 1.f);
   renodx::utils::settings::UpdateSetting("colorGradeHighlights", 50.f);
