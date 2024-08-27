@@ -386,8 +386,8 @@ void main(
         
     // make luttedSdr closer to real SDR
     luttedSdr.xyz = sign(luttedSdr.xyz) * pow(abs(luttedSdr.xyz), 1.f / 2.2f);
-    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb); // shadow boost
-    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb); // shadow boost
+    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb);
+    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb);
     //luttedSdr.rgb /= 1.2f; // 85 nits
         
     //luttedSdr.rgb = renodx::color::bt2020::from::PQ(luttedSdr.rgb);

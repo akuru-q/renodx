@@ -216,6 +216,8 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
     case DLL_PROCESS_ATTACH:
       if (!reshade::register_addon(h_module)) return FALSE;
+      renodx::mods::shader::expected_constant_buffer_index = 2;
+
       renodx::mods::shader::force_pipeline_cloning = false;  // So the mod works with the toolkit
 
       //renodx::mods::swapchain::force_borderless = false;     // needed for stability
