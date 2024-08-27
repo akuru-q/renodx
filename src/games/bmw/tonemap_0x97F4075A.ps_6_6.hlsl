@@ -152,6 +152,177 @@ void main(
         //r1.xyz = exp2(r1.xyz);
         //r1.xyz = r1.xyz * float3(0.96875,0.96875,0.96875) + float3(0.015625,0.015625,0.015625);
         //r1.xyz = t4.Sample(s3_s, r1.xyz).xyz;
+        
+        r1.w = v2.w * 543.309998 + v2.z;
+        r1.w = sin(r1.w);
+        r1.w = 493013 * r1.w;
+        r1.w = frac(r1.w);
+        r1.w = r1.w * 0.00390625 + -0.001953125;
+        
+        //luttedSdr = r1.xyzw; // needs HDR10 -> linear conv
+        //
+        //// make luttedSdr closer to real SDR
+        //luttedSdr.xyz = sign(o0.xyz) * pow(abs(luttedSdr.xyz), 1.f / 2.8f);
+        //luttedSdr.rgb = renodx::color::bt709::from::SRGB(o0.rgb); // shadow boost
+        //luttedSdr.rgb /= 1.2f; // 85 nits
+        //
+        //luttedSdr.rgb = renodx::color::bt2020::from::PQ(luttedSdr.rgb);
+        //luttedSdr.rgb = mul(renodx::color::BT2020_TO_BT709_MAT, luttedSdr.rgb);
+        
+        // vanilla code
+        //r1.xyz = r1.xyz * float3(1.04999995,1.04999995,1.04999995) + r1.www;
+        //r1.xyz = log2(r1.xyz);
+        //r1.xyz = float3(0.0126833133,0.0126833133,0.0126833133) * r1.xyz;
+        //r1.xyz = exp2(r1.xyz);
+        //r2.xyz = float3(-0.8359375,-0.8359375,-0.8359375) + r1.xyz;
+        //r2.xyz = max(float3(0,0,0), r2.xyz);
+        //r1.xyz = -r1.xyz * float3(18.6875,18.6875,18.6875) + float3(18.8515625,18.8515625,18.8515625);
+        //r1.xyz = r2.xyz / r1.xyz;
+        //r1.xyz = log2(r1.xyz);
+        //r1.xyz = float3(6.27739477,6.27739477,6.27739477) * r1.xyz;
+        //r1.xyz = exp2(r1.xyz);
+        //r1.xyz = float3(10000,10000,10000) * r1.xyz;
+        //r1.xyz = max(float3(9.99999975e-05,9.99999975e-05,9.99999975e-05), r1.xyz);
+        //r1.xyz = min(float3(1000,1000,1000), r1.xyz);
+        //r1.xyz = float3(-9.99999975e-05,-9.99999975e-05,-9.99999975e-05) + r1.xyz;
+        //r1.xyz = float3(0.00100000016,0.00100000016,0.00100000016) * r1.xyz;
+        //r2.x = dot(float3(1.73125386,-0.604043067,-0.0801077113), r1.xyz);
+        //r2.y = dot(float3(-0.131618932,1.13484156,-0.00867943279), r1.xyz);
+        //r2.z = dot(float3(-0.0245682523,-0.125750408,1.06563699), r1.xyz);
+        //r1.xyz = float3(12.5,12.5,12.5) * r2.xyz;
+        if (cb0[47].w != 0)
+        {
+            // vanilla code
+            //r2.xyz = log2(r1.xyz);
+            //r2.xyz = float3(0.0126833133,0.0126833133,0.0126833133) * r2.xyz;
+            //r2.xyz = exp2(r2.xyz);
+            //r3.xyz = float3(-0.8359375,-0.8359375,-0.8359375) + r2.xyz;
+            //r3.xyz = max(float3(0,0,0), r3.xyz);
+            //r2.xyz = -r2.xyz * float3(18.6875,18.6875,18.6875) + float3(18.8515625,18.8515625,18.8515625);
+            //r2.xyz = r3.xyz / r2.xyz;
+            //r2.xyz = log2(r2.xyz);
+            //r2.xyz = float3(6.27739477,6.27739477,6.27739477) * r2.xyz;
+            //r2.xyz = exp2(r2.xyz);
+            //r2.xyz = float3(10000,10000,10000) * r2.xyz;
+            //r2.xyz = r2.xyz / cb0[47].zzz;
+            //r2.xyz = max(float3(6.10351999e-05,6.10351999e-05,6.10351999e-05), r2.xyz);
+            //r3.xyz = float3(12.9200001,12.9200001,12.9200001) * r2.xyz;
+            //r2.xyz = max(float3(0.00313066994,0.00313066994,0.00313066994), r2.xyz);
+            //r2.xyz = log2(r2.xyz);
+            //r2.xyz = float3(0.416666657,0.416666657,0.416666657) * r2.xyz;
+            //r2.xyz = exp2(r2.xyz);
+            //r2.xyz = r2.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
+            //r1.xyz = min(r3.xyz, r2.xyz);
+        }
+        o0.xyz = r1.xyz;
+        o0.w = 0;
+    }
+    else
+    {
+        o0.xyzw = r0.xyzw;
+    }
+    
+    float4 untonemapped = o0.xyzw;
+    
+    //-----------
+    // second run
+    
+    r0.xy = max(cb0[15].xy, v0.xy);
+    r0.xy = min(cb0[15].zw, r0.xy);
+    r0.xyzw = t0.Sample(s0_s, r0.xy).xyzw; // game in linear
+  
+    //o0 = r0;
+    //return;
+  
+    r1.xy = cmp(v0.xy < cb0[33].xy);
+    r1.x = (int) r1.y | (int) r1.x;
+    r1.yz = cmp(cb0[33].zw < v0.xy);
+    r1.y = (int) r1.z | (int) r1.y;
+    r1.x = (int) r1.y | (int) r1.x;
+    if (r1.x == 0)
+    {
+        r1.xy = -cb0[33].xy + v0.xy;
+        r1.zw = cb0[33].zw + -cb0[33].xy;
+        r1.xy = r1.xy / r1.zw;
+        r2.xyz = cb1[131].zzz * r0.xyz;
+        r1.z = dot(r2.xyz, float3(0.300000012, 0.589999974, 0.109999999));
+        r3.xy = cb0[9].xy * v0.xy;
+        r3.xy = floor(r3.xy);
+        r3.xy = (uint2) r3.xy;
+        r3.xy = (int2) r3.xy & int2(1, 1);
+        r3.xy = (uint2) r3.xy;
+        r3.xy = r3.xy * float2(2, 2) + float2(-1, -1);
+        r4.x = cb0[9].z * r3.x;
+        r4.y = 0;
+        r4.xy = v0.xy + r4.xy;
+        r4.xy = max(cb0[15].xy, r4.xy);
+        r4.xy = min(cb0[15].zw, r4.xy);
+        r4.xyz = t0.Sample(s0_s, r4.xy).xyz;
+        r5.xyz = cb1[131].zzz * r4.xyz;
+        r3.z = 0;
+        r3.zw = r3.zy * cb0[9].zw + v0.xy;
+        r3.zw = max(cb0[15].xy, r3.zw);
+        r3.zw = min(cb0[15].zw, r3.zw);
+        r6.xyz = t0.Sample(s0_s, r3.zw).xyz;
+        r7.xyz = cb1[131].zzz * r6.xyz;
+        r5.x = dot(r5.xyz, float3(0.300000012, 0.589999974, 0.109999999));
+        r5.y = dot(r7.xyz, float3(0.300000012, 0.589999974, 0.109999999));
+        r7.xyz = ddx_fine(r2.xyz);
+        r7.xyz = -r7.xyz * r3.xxx + r2.xyz;
+        r8.xyz = ddy_fine(r2.xyz);
+        r8.xyz = -r8.xyz * r3.yyy + r2.xyz;
+        r1.w = ddx_fine(r1.z);
+        r5.z = -r1.w * r3.x + r1.z;
+        r1.w = ddy_fine(r1.z);
+        r5.w = -r1.w * r3.y + r1.z;
+        r3.xyzw = -r5.xyzw + r1.zzzz;
+        r1.zw = max(abs(r3.xz), abs(r3.yw));
+        r1.z = max(r1.z, r1.w);
+        r1.z = saturate(-v1.x * r1.z + 1);
+        r1.z = cb0[44].y * -r1.z;
+        r3.xyz = r4.xyz * cb1[131].zzz + r7.xyz;
+        r3.xyz = r6.xyz * cb1[131].zzz + r3.xyz;
+        r3.xyz = r3.xyz + r8.xyz;
+        r3.xyz = -r2.xyz * float3(4, 4, 4) + r3.xyz;
+        r2.xyz = r3.xyz * r1.zzz + r2.xyz;
+        r2.xyz = cb0[41].xyz * r2.xyz;
+        r3.x = t2[0].val[0 / 4];
+        r3.y = t2[0].val[0 / 4 + 1];
+        r3.z = t2[0].val[0 / 4 + 2];
+        r1.xy = r1.xy * cb0[31].xy + cb0[31].zw;
+        r1.xy = max(cb0[32].xy, r1.xy);
+        r1.xy = min(cb0[32].zw, r1.xy);
+        r1.xyz = t1.Sample(s1_s, r1.xy).xyz;
+        r1.xyz = cb1[131].zzz * r1.xyz;
+        r4.xy = w0.xy * cb0[45].zw + cb0[45].xy;
+        r4.xy = r4.xy * float2(0.5, -0.5) + float2(0.5, 0.5);
+        r4.xyz = t3.Sample(s2_s, r4.xy).xyz;
+        r4.xyz = r4.xyz * cb0[42].xyz + float3(1, 1, 1);
+        r1.xyz = r4.xyz * r1.xyz;
+        r1.xyz = r2.xyz * r3.xyz + r1.xyz;
+        r1.xyz = v1.xxx * r1.xyz;
+        r2.xy = cb0[44].xx * v1.zw;
+        r1.w = dot(r2.xy, r2.xy);
+        r1.w = 1 + r1.w;
+        r1.w = rcp(r1.w);
+        r1.w = r1.w * r1.w;
+                
+        // vanilla code
+        r1.xyz = r1.xyz * r1.www;
+        r1.xyz = float3(0.00999999978, 0.00999999978, 0.00999999978) * r1.xyz;
+        r1.xyz = log2(r1.xyz);
+        r1.xyz = float3(0.159301758, 0.159301758, 0.159301758) * r1.xyz;
+        r1.xyz = exp2(r1.xyz);
+        r2.xyz = r1.xyz * float3(18.8515625, 18.8515625, 18.8515625) + float3(0.8359375, 0.8359375, 0.8359375);
+        r1.xyz = r1.xyz * float3(18.6875, 18.6875, 18.6875) + float3(1, 1, 1);
+        r1.xyz = rcp(r1.xyz);
+        r1.xyz = r2.xyz * r1.xyz;
+        r1.xyz = log2(r1.xyz);
+        r1.xyz = float3(78.84375, 78.84375, 78.84375) * r1.xyz;
+        r1.xyz = exp2(r1.xyz);
+        r1.xyz = r1.xyz * float3(0.96875, 0.96875, 0.96875) + float3(0.015625, 0.015625, 0.015625);
+        r1.xyz = t4.Sample(s3_s, r1.xyz).xyz;
+        
         r1.w = v2.w * 543.309998 + v2.z;
         r1.w = sin(r1.w);
         r1.w = 493013 * r1.w;
@@ -211,23 +382,46 @@ void main(
         o0.xyzw = r0.xyzw;
     }
     
+    float4 luttedSdr = o0.xyzw; // needs HDR10 -> linear conv
+        
+    // make luttedSdr closer to real SDR
+    luttedSdr.xyz = sign(luttedSdr.xyz) * pow(abs(luttedSdr.xyz), 1.f / 2.2f);
+    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb); // shadow boost
+    luttedSdr.rgb = renodx::color::bt709::from::SRGB(luttedSdr.rgb); // shadow boost
+    //luttedSdr.rgb /= 1.2f; // 85 nits
+        
+    //luttedSdr.rgb = renodx::color::bt2020::from::PQ(luttedSdr.rgb);
+    luttedSdr.rgb = mul(renodx::color::BT2020_TO_BT709_MAT, luttedSdr.rgb);
+    //
+    //o0.rgb = luttedSdr.rgb;
+    //return;
+    
+    // -----------
     // custom code
     
     //o0.rgb /= 8.f; // (idk why this is needed, but otherwise too bright)
     
     // tonemapper
         
-    float3 outputColor = o0.rgb;
-    float3 vanillaColor = o0.rgb;
+    float3 outputColor = untonemapped.rgb;
+    float3 vanillaColor = luttedSdr.rgb * 5.0f;
+    
+    vanillaColor = renodx::color::grade::UserColorGrading(
+          vanillaColor,
+          injectedData.colorGradeExposure,
+          injectedData.colorGradeHighlights,
+          injectedData.colorGradeShadows,
+          injectedData.colorGradeContrast,
+          injectedData.colorGradeSaturation);
     
     if (injectedData.toneMapType == 0.f)
     {
-        outputColor = vanillaColor;
-        outputColor = max(0, outputColor); //clamps to 709/no negative colors for the vanilla tonemapper
+        //outputColor = vanillaColor;
+        outputColor = max(0, vanillaColor); //clamps to 709/no negative colors for the vanilla tonemapper
     }
     else
     {
-        outputColor = o0.rgb;
+        outputColor = untonemapped.rgb;
     }
     
     //float vanillaMidGray = 0.18f //old default
@@ -265,6 +459,8 @@ void main(
     
     if (injectedData.toneMapType != 0)
     {
+        
+        outputColor = renodx::tonemap::UpgradeToneMap(outputColor, saturate(outputColor), vanillaColor, injectedData.colorGradeLUTStrength);
         
         if (injectedData.blend) //HDR/SDR blend for color correction
         {

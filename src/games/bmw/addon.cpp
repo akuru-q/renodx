@@ -147,6 +147,16 @@ renodx::utils::settings::Settings settings = {
         .parse = [](float value) { return value * 0.01f; },
     },
     new renodx::utils::settings::Setting{
+        .key = "colorGradeLUTStrength",
+        .binding = &shader_injection.colorGradeLUTStrength,
+        .default_value = 100.f,
+        .label = "LUT Strength",
+        .section = "Color Grading",
+        .max = 100.f,
+        .is_enabled = []() { return shader_injection.toneMapType != 0; },
+        .parse = [](float value) { return value * 0.01f; },
+    },
+    new renodx::utils::settings::Setting{
         .key = "debugVanillaMidGrey",
         .binding = &shader_injection.debugVanillaMidGrey,
         .default_value = 10.f,
@@ -154,6 +164,25 @@ renodx::utils::settings::Settings settings = {
         .section = "Color Grading",
         .max = 100.f,
         .parse = [](float value) { return value * 0.01f; },
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+        .label = "Discord",
+        .section = "Links",
+        .group = "button-line-1",
+        .tint = 0x5865F2,
+        .on_change = []() {
+          system("start https://discord.gg/5WZXDpmbpP");
+        },
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+        .label = "Github",
+        .section = "Links",
+        .group = "button-line-1",
+        .on_change = []() {
+          system("start https://github.com/clshortfuse/renodx");
+        },
     },
 };
 
@@ -171,6 +200,7 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("colorGradeBlowout", 50.f);
   renodx::utils::settings::UpdateSetting("blend", 0);
   renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 50.f);
+  renodx::utils::settings::UpdateSetting("colorGradeLUTStrength", 0.f);
 }
 
 }  // namespace
