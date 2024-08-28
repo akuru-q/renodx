@@ -400,6 +400,7 @@ void main(
     float3 outputColor = untonemapped.rgb;
     float3 vanillaColor = luttedSdr.rgb * 5.0f;
     
+    // apply user color grading to SDR as well; with adjustments for better SDR
     vanillaColor = renodx::color::grade::UserColorGrading(
           vanillaColor,
           injectedData.colorGradeExposure,
@@ -419,7 +420,8 @@ void main(
     }
     
     //float vanillaMidGray = 0.18f //old default
-    float vanillaMidGray = injectedData.debugVanillaMidGrey;
+    //float vanillaMidGray = injectedData.debugVanillaMidGrey;
+    float vanillaMidGray = 0.36f;
     float renoDRTContrast = 1.f;
     float renoDRTFlare = 0.f;
     float renoDRTShadows = 1.f;
@@ -446,15 +448,20 @@ void main(
       renoDRTSaturation,
       renoDRTDechroma,
       renoDRTFlare,
-      renodx::tonemap::config::hue_correction_type::CUSTOM, (injectedData.toneMapHueCorrection), vanillaColor);
+      //renodx::tonemap::config::hue_correction_type::CUSTOM, (injectedData.toneMapHueCorrection), vanillaColor
+      renodx::tonemap::config::hue_correction_type::CUSTOM, 0.f, vanillaColor
+    );
 
     outputColor = renodx::tonemap::config::Apply(outputColor, config);
     
     
     if (injectedData.toneMapType != 0)
-    {
+    {   
+        float highlightsShoulderStart = vanillaMidGray * 80.f; // Don't tonemap the blended part of the tonemapper
+        float3 sdrColor = renodx::tonemap::dice::BT709(outputColor, 80.f, highlightsShoulderStart);
+        vanillaColor = renodx::tonemap::dice::BT709(vanillaColor, 80.f, highlightsShoulderStart);
         
-        outputColor = renodx::tonemap::UpgradeToneMap(outputColor, saturate(outputColor), vanillaColor, injectedData.colorGradeLUTStrength);
+        outputColor = renodx::tonemap::UpgradeToneMap(outputColor, saturate(sdrColor), saturate(vanillaColor), injectedData.colorGradeLUTStrength);
         
         if (injectedData.blend) //HDR/SDR blend for color correction
         {
