@@ -37,7 +37,8 @@ renodx::utils::settings::Settings settings = {
         .label = "Tone Mapper",
         .section = "Tone Mapping",
         .tooltip = "Sets the tone mapper type",
-        .labels = {"Vanilla", "None", "ACES", "RenoDX"},
+        //.labels = {"Vanilla", "None", "ACES", "RenoDX"},
+        .labels = {"None", "RenoDX"},
     },
     new renodx::utils::settings::Setting{
         .key = "toneMapPeakNits",
@@ -60,45 +61,46 @@ renodx::utils::settings::Settings settings = {
         .min = 48.f,
         .max = 500.f,
     },
-    new renodx::utils::settings::Setting{
-        .key = "toneMapUINits",
-        .binding = &shader_injection.toneMapUINits,
-        .default_value = 203.f,
-        .label = "UI Brightness",
-        .section = "Tone Mapping",
-        .tooltip = "Sets the brightness of UI and HUD elements in nits",
-        .min = 48.f,
-        .max = 500.f,
-    },
+    //new renodx::utils::settings::Setting{
+    //    .key = "toneMapUINits",
+    //    .binding = &shader_injection.toneMapUINits,
+    //    .default_value = 203.f,
+    //    .label = "UI Brightness",
+    //    .section = "Tone Mapping",
+    //    .tooltip = "Sets the brightness of UI and HUD elements in nits",
+    //    .min = 48.f,
+    //    .max = 500.f,
+    //},
     new renodx::utils::settings::Setting{
         .key = "toneMapGammaCorrection",
         .binding = &shader_injection.toneMapGammaCorrection,
         .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
+        .default_value = 1,
         .can_reset = false,
         .label = "Gamma Correction",
         .section = "Tone Mapping",
         .tooltip = "Emulates a 2.2 EOTF (use with HDR or sRGB)",
     },
-    new renodx::utils::settings::Setting{
-        .key = "toneMapHueCorrection",
-        .binding = &shader_injection.toneMapHueCorrection,
-        .default_value = 50.f,
-        .label = "Hue Correction",
-        .section = "Tone Mapping",
-        .tooltip = "Emulates hue shifting from the vanilla tonemapper",
-        .max = 100.f,
-        .parse = [](float value) { return value * 0.01f; },
-    },
-    new renodx::utils::settings::Setting{
-        .key = "blend",
-        .binding = &shader_injection.blend,
-        .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
-        .default_value = 1,
-        .can_reset = false,
-        .label = "Blend SDR/HDR",
-        .section = "Tone Mapping",
-        .tooltip = "Enable/Disable Blend",
-    },
+    //new renodx::utils::settings::Setting{
+    //    .key = "toneMapHueCorrection",
+    //    .binding = &shader_injection.toneMapHueCorrection,
+    //    .default_value = 50.f,
+    //    .label = "Hue Correction",
+    //    .section = "Tone Mapping",
+    //    .tooltip = "Emulates hue shifting from the vanilla tonemapper",
+    //    .max = 100.f,
+    //    .parse = [](float value) { return value * 0.01f; },
+    //},
+    //new renodx::utils::settings::Setting{
+    //    .key = "blend",
+    //    .binding = &shader_injection.blend,
+    //    .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
+    //    .default_value = 1,
+    //    .can_reset = false,
+    //    .label = "Blend SDR/HDR",
+    //    .section = "Tone Mapping",
+    //    .tooltip = "Enable/Disable Blend",
+    //},
     new renodx::utils::settings::Setting{
         .key = "colorGradeExposure",
         .binding = &shader_injection.colorGradeExposure,
@@ -147,7 +149,7 @@ renodx::utils::settings::Settings settings = {
     new renodx::utils::settings::Setting{
         .key = "colorGradeBlowout",
         .binding = &shader_injection.colorGradeBlowout,
-        .default_value = 50.f,
+        .default_value = 70.f,
         .label = "Blowout",
         .section = "Color Grading",
         .tooltip = "Controls highlight desaturation due to overexposure.",
@@ -155,25 +157,25 @@ renodx::utils::settings::Settings settings = {
         .is_enabled = []() { return shader_injection.toneMapType == 3; },  // Dont enable unless RenoDRT is selected
         .parse = [](float value) { return value * 0.01f; },
     },
-    new renodx::utils::settings::Setting{
-        .key = "colorGradeLUTStrength",
-        .binding = &shader_injection.colorGradeLUTStrength,
-        .default_value = 100.f,
-        .label = "LUT Strength",
-        .section = "Color Grading",
-        .max = 100.f,
-        .is_enabled = []() { return shader_injection.toneMapType != 0; },
-        .parse = [](float value) { return value * 0.01f; },
-    },
-    new renodx::utils::settings::Setting{
-        .key = "debugVanillaMidGrey",
-        .binding = &shader_injection.debugVanillaMidGrey,
-        .default_value = 10.f,
-        .label = "Vanilla Mid Grey",
-        .section = "Color Grading",
-        .max = 100.f,
-        .parse = [](float value) { return value * 0.01f; },
-    },
+    //new renodx::utils::settings::Setting{
+    //    .key = "colorGradeLUTStrength",
+    //    .binding = &shader_injection.colorGradeLUTStrength,
+    //    .default_value = 100.f,
+    //    .label = "LUT Strength",
+    //    .section = "Color Grading",
+    //    .max = 100.f,
+    //    .is_enabled = []() { return shader_injection.toneMapType != 0; },
+    //    .parse = [](float value) { return value * 0.01f; },
+    //},
+    //new renodx::utils::settings::Setting{
+    //    .key = "debugVanillaMidGrey",
+    //    .binding = &shader_injection.debugVanillaMidGrey,
+    //    .default_value = 10.f,
+    //    .label = "Vanilla Mid Grey",
+    //    .section = "Color Grading",
+    //    .max = 100.f,
+    //    .parse = [](float value) { return value * 0.01f; },
+    //},
     new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::BUTTON,
         .label = "Discord",
@@ -207,10 +209,10 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("colorGradeShadows", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeContrast", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeSaturation", 50.f);
-  renodx::utils::settings::UpdateSetting("colorGradeBlowout", 50.f);
-  renodx::utils::settings::UpdateSetting("blend", 0);
-  renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 50.f);
-  renodx::utils::settings::UpdateSetting("colorGradeLUTStrength", 0.f);
+  renodx::utils::settings::UpdateSetting("colorGradeBlowout", 70.f);
+  //renodx::utils::settings::UpdateSetting("blend", 0);
+  //renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 50.f);
+  //renodx::utils::settings::UpdateSetting("colorGradeLUTStrength", 0.f);
 }
 
 }  // namespace
