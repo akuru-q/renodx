@@ -283,11 +283,11 @@ void main(
     
     o0.rgb *= injectedData.toneMapGameNits; // scale by game brightness
             
-    else if (injectedData.toneMapType == 1) // DICE
+    if (injectedData.toneMapType == 1) // DICE
     {
         o0.rgb = renodx::tonemap::dice::BT709(o0.rgb, injectedData.toneMapPeakNits, injectedData.toneMapGameNits / injectedData.toneMapPeakNits);
     }
-    
+        
     // output expected as PQ, so we need linear > PQ conversion
     o0.rgb = mul(renodx::color::BT709_TO_BT2020_MAT, o0.rgb);   // use bt2020
     o0.rgb /= 10000.f;                                          // Scale for PQ
@@ -295,6 +295,5 @@ void main(
     o0.rgb = renodx::color::pq::from::BT2020(o0.rgb);           // convert to PQ
     o0.rgb = min(1.f, o0.rgb);                                  // clamp PQ (10K nits)
         
-    o0.rgb = 0.1f;
     return;
 }
