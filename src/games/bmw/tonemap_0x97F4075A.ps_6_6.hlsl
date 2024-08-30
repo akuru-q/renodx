@@ -221,39 +221,57 @@ void main(
         
     float3 outputColor = untonemapped.rgb;
     
-    //float vanillaMidGray = 0.18f //old default
-    float vanillaMidGray = 0.36;
-    //float vanillaMidGray = 0.36f;
-    float renoDRTContrast = 1.f;
-    float renoDRTFlare = 0.f;
-    float renoDRTShadows = 1.f;
-    float renoDRTDechroma = injectedData.colorGradeBlowout;
-    float renoDRTSaturation = 1.f;
-    float renoDRTHighlights = 1.f;
-
-    renodx::tonemap::Config config = renodx::tonemap::config::Create(
-      injectedData.toneMapType,
-      injectedData.toneMapPeakNits,
-      injectedData.toneMapGameNits,
-      1,
-      injectedData.colorGradeExposure,
-      injectedData.colorGradeHighlights,
-      injectedData.colorGradeShadows,
-      injectedData.colorGradeContrast,
-      injectedData.colorGradeSaturation,
-      vanillaMidGray,
-      vanillaMidGray * 100.f,
-      renoDRTHighlights,
-      renoDRTShadows,
-      renoDRTContrast,
-      renoDRTSaturation,
-      renoDRTDechroma,
-      renoDRTFlare,
-      //renodx::tonemap::config::hue_correction_type::CUSTOM, (injectedData.toneMapHueCorrection), vanillaColor
-      renodx::tonemap::config::hue_correction_type::CUSTOM, 0.f, outputColor
-    );
-
-    outputColor = renodx::tonemap::config::Apply(outputColor, config);
+    if (injectedData.toneMapType == 0) // None
+    {
+        outputColor.rgb *= 2.f;
+    }
+    if (injectedData.toneMapType == 1) // DICE
+    {
+        outputColor.rgb *= 2.f;
+        outputColor = renodx::color::grade::UserColorGrading(
+              outputColor,
+              injectedData.colorGradeExposure,
+              injectedData.colorGradeHighlights,
+              injectedData.colorGradeShadows,
+              injectedData.colorGradeContrast,
+              injectedData.colorGradeSaturation);
+    }
+    else if (injectedData.toneMapType == 2 || injectedData.toneMapType == 3) // RenoDX (+ ACES...)
+    {
+        float vanillaMidGray = 0.36f; //old default
+            //float vanillaMidGray = 0.36f;
+            //float vanillaMidGray = 0.36f;
+        float renoDRTContrast = 1.f;
+        float renoDRTFlare = 0.f;
+        float renoDRTShadows = 1.f; // 0.8
+        float renoDRTDechroma = injectedData.colorGradeBlowout;
+        float renoDRTSaturation = 1.f; // 1.1f
+        float renoDRTHighlights = 1.f;
+        
+        renodx::tonemap::Config config = renodx::tonemap::config::Create(
+              injectedData.toneMapType,
+              injectedData.toneMapPeakNits,
+              injectedData.toneMapGameNits,
+              1,
+              injectedData.colorGradeExposure,
+              injectedData.colorGradeHighlights,
+              injectedData.colorGradeShadows,
+              injectedData.colorGradeContrast,
+              injectedData.colorGradeSaturation,
+              vanillaMidGray,
+              vanillaMidGray * 100.f,
+              renoDRTHighlights,
+              renoDRTShadows,
+              renoDRTContrast,
+              renoDRTSaturation,
+              renoDRTDechroma,
+              renoDRTFlare,
+              //renodx::tonemap::config::hue_correction_type::CUSTOM, (injectedData.toneMapHueCorrection), vanillaColor
+              renodx::tonemap::config::hue_correction_type::CUSTOM, 0.f, outputColor
+            );
+        
+        outputColor = renodx::tonemap::config::Apply(outputColor, config);
+    }
     
     o0.rgb = outputColor.rgb;
     
@@ -262,9 +280,13 @@ void main(
                ? renodx::math::SafePow(o0.rgb, 2.2f)
                : renodx::color::bt709::from::SRGB(o0.rgb);
     
+    
     o0.rgb *= injectedData.toneMapGameNits; // scale by game brightness
             
-    o0.rgb = renodx::tonemap::dice::BT709(o0.rgb, injectedData.toneMapPeakNits, 0.75);
+    else if (injectedData.toneMapType == 1) // DICE
+    {
+        o0.rgb = renodx::tonemap::dice::BT709(o0.rgb, injectedData.toneMapPeakNits, injectedData.toneMapGameNits / injectedData.toneMapPeakNits);
+    }
     
     // output expected as PQ, so we need linear > PQ conversion
     o0.rgb = mul(renodx::color::BT709_TO_BT2020_MAT, o0.rgb);   // use bt2020
@@ -273,5 +295,6 @@ void main(
     o0.rgb = renodx::color::pq::from::BT2020(o0.rgb);           // convert to PQ
     o0.rgb = min(1.f, o0.rgb);                                  // clamp PQ (10K nits)
         
+    o0.rgb = 0.1f;
     return;
 }
