@@ -7,7 +7,6 @@
 
 #include <array>
 #include <cassert>
-#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
@@ -90,15 +89,8 @@ enum class TokenizerState : uint32_t {
   FUNCTION_ATTRIBUTES,
   CODE_DEFINE,
   CODE_BLOCK,
-  CODE_ASSIGN,
-  CODE_CALL,
-  CODE_STORE,
-  CODE_RETURN,
-  CODE_BRANCH,
-  CODE_BRANCH_START,
-  CODE_BRANCH_BLOCK,
   CODE_END,
-  PRAGMA_VARIABLE,
+  NAMED_METADATA,
   GLOBAL_VARIABLE,
   COMPLETE
 };
@@ -160,20 +152,13 @@ inline std::ostream& operator<<(std::ostream& os, const TokenizerState& state) {
     case TokenizerState::TYPE_DEFINITION:                                return os << "type_definition";
     case TokenizerState::CODE_DEFINE:                                    return os << "code_define";
     case TokenizerState::CODE_BLOCK:                                     return os << "code_block";
-    case TokenizerState::CODE_ASSIGN:                                    return os << "code_assign";
-    case TokenizerState::CODE_CALL:                                      return os << "code_call";
-    case TokenizerState::CODE_STORE:                                     return os << "code_store";
-    case TokenizerState::CODE_RETURN:                                    return os << "code_return";
-    case TokenizerState::CODE_BRANCH:                                    return os << "code_branch";
-    case TokenizerState::CODE_BRANCH_START:                              return os << "code_branch_start";
-    case TokenizerState::CODE_BRANCH_BLOCK:                              return os << "code_branch_block";
     case TokenizerState::CODE_END:                                       return os << "code_end";
     case TokenizerState::COMPLETE:                                       return os << "complete";
     case TokenizerState::FUNCTION_DECLARE:                               return os << "function_declare";
     case TokenizerState::FUNCTION_DESCRIPTION:                           return os << "function_description";
     case TokenizerState::FUNCTION_ATTRIBUTES:                            return os << "function_attributes";
     case TokenizerState::GLOBAL_VARIABLE:                                return os << "global_variable";
-    case TokenizerState::PRAGMA_VARIABLE:                                return os << "pragma_variable";
+    case TokenizerState::NAMED_METADATA:                                 return os << "named_metadata";
     default:                                                             return os << "unknown";
   }
 }
@@ -207,6 +192,13 @@ class Decompiler {
     throw std::invalid_argument("Could not parse index");
   }
 
+  static std::string ParseBool(std::string_view input) {
+    if (input.at(0) == '%') {
+      return std::format("_{}", input.substr(1));
+    }
+    return std::format("{}", input);
+  }
+
   static std::string ParseInt(std::string_view input) {
     if (input.at(0) == '%') {
       return std::format("_{}", input.substr(1));
@@ -233,7 +225,7 @@ class Decompiler {
       uint64_t as_uint64 = unsigned_long;
       memcpy(&value, &as_uint64, sizeof value);
     } else {
-      std::from_chars(input.data(), input.data() + input.size(), value);
+      FromStringView(input, value);
     }
     output = std::format("{}", value);
     if (output.find('.') == std::string::npos) {
@@ -453,9 +445,9 @@ class Decompiler {
       auto [name, index, mask, dxregister, sysValue, format, used] = StringViewMatch<7>(line, regex);
 
       this->name = SignatureNameFromString(name);
-      std::from_chars(index.data(), index.data() + index.size(), this->index);
+      FromStringView(index, this->index);
       this->mask = FlagsFromCoordinates(mask);
-      std::from_chars(dxregister.data(), dxregister.data() + dxregister.size(), this->dxregister);
+      FromStringView(dxregister, this->dxregister);
       this->sys_value = SysValueFromString(sysValue);
       this->format = FormatFromString(format);
       this->used = FlagsFromCoordinates(used);
@@ -496,7 +488,7 @@ class Decompiler {
     static int32_t DynIndexFromString(std::string_view input) {
       if (input.empty()) return -1;
       int32_t value = -1;
-      std::from_chars(input.data(), input.data() + input.size(), value);
+      FromStringView(input, value);
       return value;
     }
 
@@ -513,7 +505,7 @@ class Decompiler {
       auto [name, index, interpMode, dynIndex] = StringViewMatch<4>(line, regex);
 
       this->name = SignatureNameFromString(name);
-      std::from_chars(index.data(), index.data() + index.size(), this->index);
+      FromStringView(index, this->index);
       this->interp_mode = InterpModeFromString(StringViewTrim(interpMode));
       this->dyn_index = DynIndexFromString(StringViewTrim(dynIndex));
     }
@@ -617,7 +609,19 @@ class Decompiler {
     }
   };
 
-  struct ResourceBinding {
+  struct Metadata {
+    static std::string_view ParseString(std::string_view s) {
+      static const std::regex METADATA_STRING_REGEX = std::regex("^!\"(.*)\"$");
+      return StringViewMatch(s, METADATA_STRING_REGEX);
+    }
+
+    static std::array<std::string_view, 2> ParseKeyValue(std::string_view s) {
+      static const std::regex METADATA_KEY_VALUE_REGEX = std::regex(R"(^(.*) (\S+)$)");
+      return StringViewMatch<2>(s, METADATA_KEY_VALUE_REGEX);
+    }
+  };
+
+  struct ResourceDescription {
     std::string_view name;
 
     enum class ResourceType {
@@ -648,7 +652,7 @@ class Decompiler {
 
     uint32_t count;
 
-    ResourceBinding() = default;
+    ResourceDescription() = default;
 
     [[nodiscard]] std::string ResourceTypeString() const {
       if (this->type == ResourceType::CBUFFER) return "cbuffer";
@@ -688,7 +692,7 @@ class Decompiler {
       throw std::invalid_argument("Unknown ResourceDimensions");
     }
 
-    explicit ResourceBinding(std::string_view line) {
+    explicit ResourceDescription(std::string_view line) {
       // ; _31_33                            cbuffer      NA          NA     CB0            cb0     1
       static auto regex = std::regex{R"(; (.{30})\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*)"};
       auto [name, type, format, dimensions, id, hlslBinding, count] = StringViewMatch<7>(line, regex);
@@ -698,16 +702,298 @@ class Decompiler {
       this->dimensions = ResourceDimensionsFromString(dimensions);
       this->id = id;
       this->hlsl_binding = hlslBinding;
-      std::from_chars(count.data(), count.data() + count.size(), this->count);
+      FromStringView(count, this->count);
+    }
+  };
+  struct Resource : Metadata {
+    uint32_t record_id;
+    std::string_view pointer;
+    std::string name;
+    uint32_t space;
+    uint32_t signature_index;
+    uint32_t signature_range;
+
+    explicit Resource(std::vector<std::string_view>& metadata) : Metadata() {
+      // !6 = !{i32 0, %"class.Texture2D<vector<float, 4> >"* undef, !"", i32 0, i32 32, i32 1, i32 2, i32 0, !7}
+      FromStringView(ParseKeyValue(metadata[0])[1], this->record_id);
+      this->pointer = ParseKeyValue(metadata[1])[0];
+      this->name = ParseString(metadata[2]);
+      FromStringView(ParseKeyValue(metadata[3])[1], this->space);
+      FromStringView(ParseKeyValue(metadata[4])[1], this->signature_index);
+      FromStringView(ParseKeyValue(metadata[5])[1], this->signature_range);
+    };
+
+    void UpdateNameFromDescription(std::span<ResourceDescription> resource_descriptions, std::string prefix) {
+      if (!name.empty()) return;
+      std::string hlsl_bind;
+      if (space != 0u) {
+        hlsl_bind = std::format("{}{},space{}", prefix, signature_index, space);
+      } else {
+        hlsl_bind = std::format("{}{}", prefix, signature_index);
+      }
+      bool found = false;
+      for (const auto& description : resource_descriptions) {
+        if (description.hlsl_binding == hlsl_bind) {
+          if (description.name.empty()) {
+            name = description.id;
+            std::transform(name.begin(), name.end(), name.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+
+          } else {
+            name = description.name;
+          }
+          break;
+        }
+      }
+    }
+
+    enum class ResourceKind : unsigned {
+      Invalid = 0,
+      Texture1D,
+      Texture2D,
+      Texture2DMS,
+      Texture3D,
+      TextureCube,
+      Texture1DArray,
+      Texture2DArray,
+      Texture2DMSArray,
+      TextureCubeArray,
+      TypedBuffer,
+      RawBuffer,
+      StructuredBuffer,
+      CBuffer,
+      Sampler,
+      TBuffer,
+      RTAccelerationStructure,
+      FeedbackTexture2D,
+      FeedbackTexture2DArray,
+      NumEntries,
+    };
+
+    static std::string ResourceKindString(ResourceKind& kind) {
+      switch (kind) {
+        case ResourceKind::Texture1D:
+          return "Texture1D";
+        case ResourceKind::Texture2D:
+          return "Texture2D";
+        case ResourceKind::Texture2DMS:
+          return "Texture2DMS";
+        case ResourceKind::Texture3D:
+          return "Texture3D";
+        case ResourceKind::TextureCube:
+          return "TextureCube";
+        case ResourceKind::Texture1DArray:
+          return "Texture1DArray";
+        case ResourceKind::Texture2DArray:
+          return "Texture2DArray";
+        case ResourceKind::Texture2DMSArray:
+          return "Texture2DMSArray";
+        case ResourceKind::TextureCubeArray:
+          return "TextureCubeArray";
+        case ResourceKind::TypedBuffer:
+          return "TypedBuffer";
+        case ResourceKind::RawBuffer:
+          return "RawBuffer";
+        case ResourceKind::StructuredBuffer:
+          return "StructuredBuffer";
+        case ResourceKind::CBuffer:
+          return "CBuffer";
+        case ResourceKind::Sampler:
+          return "Sampler";
+        case ResourceKind::TBuffer:
+          return "TBuffer";
+        case ResourceKind::RTAccelerationStructure:
+          return "RTAccelerationStructure";
+        case ResourceKind::FeedbackTexture2D:
+          return "FeedbackTexture2D";
+        case ResourceKind::FeedbackTexture2DArray:
+          return "FeedbackTexture2DArray";
+        default:
+        case ResourceKind::Invalid:
+        case ResourceKind::NumEntries:
+          return "";
+      }
+    }
+
+    enum class ComponentType : uint32_t {
+      Invalid = 0,
+      I1,
+      I16,
+      U16,
+      I32,
+      U32,
+      I64,
+      U64,
+      F16,
+      F32,
+      F64,
+      SNormF16,
+      UNormF16,
+      SNormF32,
+      UNormF32,
+      SNormF64,
+      UNormF64,
+      PackedS8x32,
+      PackedU8x32,
+      LastEntry
+    };
+
+    static std::string ComponentTypeString(ComponentType& component_type) {
+      switch (component_type) {
+        case ComponentType::I1:
+          return "bool";
+        case ComponentType::I16:
+          return "int2";
+        case ComponentType::U16:
+          return "uint2";
+        case ComponentType::I32:
+          return "int4";
+        case ComponentType::U32:
+          return "uint4";
+        case ComponentType::I64:
+          return "int64_t ";
+        case ComponentType::U64:
+          return "uint64_t";
+        case ComponentType::F16:
+          return "half4";
+        case ComponentType::F32:
+          return "float4";
+        case ComponentType::F64:
+          return "double4";
+        case ComponentType::SNormF16:
+          return "snorm half4";
+        case ComponentType::UNormF16:
+          return "unorm half4";
+        case ComponentType::SNormF32:
+          return "snorm float4";
+        case ComponentType::UNormF32:
+          return "unorm float4";
+        case ComponentType::SNormF64:
+          return "snorm double4";
+        case ComponentType::UNormF64:
+          return "unorm double4";
+        case ComponentType::PackedS8x32:
+          return "p32i8";
+        case ComponentType::PackedU8x32:
+          return "p32u8";
+        default:
+        case ComponentType::LastEntry:
+        case ComponentType::Invalid:
+          return "";
+      }
+    }
+  };
+
+  struct SRVResource : Resource {
+    ResourceKind shape;
+    uint32_t sample_count;
+    ComponentType element_type;
+    uint32_t stride;
+    explicit SRVResource(
+        std::vector<std::string_view>& metadata,
+        std::map<std::string_view, std::vector<std::string_view>>& raw_metadata)
+        : Resource(metadata) {
+      // https://github.com/microsoft/DirectXShaderCompiler/blob/b766b432678cf5f7a93567d253bb5f7fd8a0b2c7/docs/DXIL.rst#L1047
+      uint32_t shape;
+      FromStringView(ParseKeyValue(metadata[6])[1], shape);
+      this->shape = static_cast<ResourceKind>(shape);
+      FromStringView(ParseKeyValue(metadata[7])[1], this->sample_count);
+      auto pairs = raw_metadata[metadata[8]];
+      int type_value;
+      FromStringView(ParseKeyValue(pairs[0])[1], type_value);
+      if (type_value == 0) {
+        uint32_t element_type;
+        FromStringView(ParseKeyValue(pairs[1])[1], element_type);
+        this->element_type = static_cast<ComponentType>(element_type);
+      } else {
+        this->element_type = Resource::ComponentType::Invalid;
+        FromStringView(ParseKeyValue(pairs[1])[1], this->stride);
+      }
+    }
+
+    void UpdateNameFromDescription(std::span<ResourceDescription> resource_descriptions) {
+      Resource::UpdateNameFromDescription(resource_descriptions, "t");
+    }
+  };
+
+  struct UAVResource : Resource {
+    ResourceKind shape;
+    bool is_globally_coherent;
+    bool has_counter;
+    bool is_rasterizer_ordered_view;
+
+    ComponentType element_type;
+    uint32_t stride;
+
+    explicit UAVResource(
+        std::vector<std::string_view>& metadata,
+        std::map<std::string_view, std::vector<std::string_view>>& raw_metadata)
+        : Resource(metadata) {
+      // https://github.com/microsoft/DirectXShaderCompiler/blob/b766b432678cf5f7a93567d253bb5f7fd8a0b2c7/docs/DXIL.rst#L1047
+      uint32_t shape;
+      FromStringView(ParseKeyValue(metadata[6])[1], shape);
+      this->shape = static_cast<ResourceKind>(shape);
+
+      this->is_globally_coherent = (ParseKeyValue(metadata[7])[1] == "true");
+      this->has_counter = (ParseKeyValue(metadata[8])[1] == "true");
+      this->has_counter = (ParseKeyValue(metadata[9])[1] == "true");
+      auto pairs = raw_metadata[metadata[10]];
+
+      int type_value;
+      FromStringView(ParseKeyValue(pairs[0])[1], type_value);
+      if (type_value == 0) {
+        uint32_t element_type;
+        FromStringView(ParseKeyValue(pairs[1])[1], element_type);
+        this->element_type = static_cast<ComponentType>(element_type);
+      } else {
+        this->element_type = Resource::ComponentType::Invalid;
+        FromStringView(ParseKeyValue(pairs[1])[1], this->stride);
+      }
+    }
+
+    void UpdateNameFromDescription(std::span<ResourceDescription> resource_descriptions) {
+      Resource::UpdateNameFromDescription(resource_descriptions, "u");
+    }
+  };
+
+  struct CBVResource : Resource {
+    uint32_t buffer_size;
+    explicit CBVResource(
+        std::vector<std::string_view>& metadata,
+        std::map<std::string_view, std::vector<std::string_view>>& raw_metadata)
+        : Resource(metadata) {
+      FromStringView(ParseKeyValue(metadata[6])[1], buffer_size);
+    }
+
+    void UpdateNameFromDescription(std::span<ResourceDescription> resource_descriptions) {
+      Resource::UpdateNameFromDescription(resource_descriptions, "cb");
+    }
+  };
+
+  struct SamplerResource : Resource {
+    uint32_t buffer_size;
+    explicit SamplerResource(
+        std::vector<std::string_view>& metadata,
+        std::map<std::string_view, std::vector<std::string_view>>& raw_metadata)
+        : Resource(metadata) {
+      FromStringView(ParseKeyValue(metadata[6])[1], buffer_size);
+    }
+
+    void UpdateNameFromDescription(std::span<ResourceDescription> resource_descriptions) {
+      Resource::UpdateNameFromDescription(resource_descriptions, "s");
     }
   };
 
   struct PreprocessState {
     std::vector<Signature> input_signature;
     std::vector<Signature> output_signature;
-    std::vector<ResourceBinding> resource_bindings;
+    std::vector<ResourceDescription> resource_descriptions;
     std::map<std::string, std::string> global_variables;
     std::map<std::string, std::string> resource_binding_variables;
+    std::vector<SRVResource> srv_resources;
+    std::vector<UAVResource> uav_resources;
+    std::vector<CBVResource> cbv_resources;
+    std::vector<SamplerResource> sampler_resources;
   };
 
   struct TypeDefinition {
@@ -783,15 +1069,24 @@ class Decompiler {
         if (functionName == "@dx.op.createHandle") {
           //   %dx.types.Handle @dx.op.createHandle(i32 57, i8 2, i32 0, i32 0, i1 false)  ; CreateHandle(resourceClass,rangeId,index,nonUniformIndex)
           auto [opNumber, resource_class, range_id, index, nonUniformIndex] = StringViewSplit<5>(functionParamsString, param_regex, 2);
+          int index_value;
+          FromStringView(index, index_value);
           if (resource_class == "0") {
-            decompiled = std::format("// texture _{} = t{};", variable, ParseInt(index));
-            preprocess_state.resource_binding_variables[std::string(variable)] = std::format("t{}", ParseInt(index));
+            auto srv = preprocess_state.srv_resources[index_value];
+            decompiled = std::format("// texture _{} = {};", variable, srv.name);
+            preprocess_state.resource_binding_variables[std::string(variable)] = srv.name;
+          } else if (resource_class == "1") {
+            auto uav = preprocess_state.uav_resources[index_value];
+            decompiled = std::format("// rwtexture _{} = {};", variable, uav.name);
+            preprocess_state.resource_binding_variables[std::string(variable)] = uav.name;
           } else if (resource_class == "2") {
-            decompiled = std::format("// cbuffer _{} = cb{};", variable, ParseInt(index));
-            preprocess_state.resource_binding_variables[std::string(variable)] = std::format("cb{}", ParseInt(index));
+            auto cbv = preprocess_state.cbv_resources[index_value];
+            decompiled = std::format("// cbuffer _{} = {};", variable, cbv.name);
+            preprocess_state.resource_binding_variables[std::string(variable)] = cbv.name;
           } else if (resource_class == "3") {
-            decompiled = std::format("// SamplerState _{} = s{};", variable, ParseInt(index));
-            preprocess_state.resource_binding_variables[std::string(variable)] = std::format("s{}", ParseInt(index));
+            auto sampler = preprocess_state.sampler_resources[index_value];
+            decompiled = std::format("// SamplerState _{} = s{};", variable, sampler.name);
+            preprocess_state.resource_binding_variables[std::string(variable)] = sampler.name;
           } else {
             throw std::invalid_argument("Unknown resource type");
           }
@@ -831,7 +1126,7 @@ class Decompiler {
           //   @dx.op.loadInput.f32(i32 4, i32 3, i32 0, i8 0, i32 undef)  ; LoadInput(inputSigId,rowIndex,colIndex,gsVertexAxis)
           auto [opNumber, inputSigId, rowIndex, colIndex, gsVertexAxis] = StringViewSplit<5>(functionParamsString, param_regex, 2);
           int input_signature_index;
-          std::from_chars(inputSigId.data(), inputSigId.data() + inputSigId.size(), input_signature_index);
+          FromStringView(inputSigId, input_signature_index);
           auto signature = preprocess_state.input_signature[input_signature_index];
           if (signature.packed.MaskString() == "1") {
             if (ParseIndex(colIndex) != "x") {
@@ -1096,7 +1391,7 @@ class Decompiler {
         auto pairs = StringViewSplitAll(arguments, std::regex{R"((\[ (\S+), %(\S+) \]),?)"}, {2, 3});
         for (const auto& [value, function_number] : pairs) {
           int function_int;
-          std::from_chars(function_number.data(), function_number.data() + function_number.size(), function_int);
+          FromStringView(function_number, function_int);
           auto assignment_line = std::format("_{} = {};", variable, ParseFloat(value));
           this->code_blocks[function_int].hlsl_lines.push_back(assignment_line);
         }
@@ -1149,12 +1444,12 @@ class Decompiler {
       const auto [condition, if_true, if_false] = StringViewMatch<3>(line, conditional_branch_regex);
       if (!condition.empty()) {
         this->current_code_block.branch.branch_condition = ParseInt(condition);
-        std::from_chars(if_true.data(), if_true.data() + if_true.size(), this->current_code_block.branch.branch_condition_true);
-        std::from_chars(if_false.data(), if_false.data() + if_false.size(), this->current_code_block.branch.branch_condition_false);
+        FromStringView(if_true, this->current_code_block.branch.branch_condition_true);
+        FromStringView(if_false, this->current_code_block.branch.branch_condition_false);
       } else {
         static auto unconditional_branch_regex = std::regex{R"(^  br label %(\S+).*)"};
         const auto [unconditional] = StringViewMatch<1>(line, unconditional_branch_regex);
-        std::from_chars(unconditional.data(), unconditional.data() + unconditional.size(), this->current_code_block.branch.branch_condition_true);
+        FromStringView(unconditional, this->current_code_block.branch.branch_condition_true);
       }
       this->CloseBranch();
     }
@@ -1171,7 +1466,7 @@ class Decompiler {
         // call void @dx.op.storeOutput.f32(i32 5, i32 0, i32 0, i8 0, float %2772)  ; StoreOutput(outputSigId,rowIndex,colIndex,value)
         auto [opNumber, outputSigId, rowIndex, colIndex, value] = StringViewSplit<5>(functionParamsString, param_regex, 2);
         int output_signature_index;
-        std::from_chars(outputSigId.data(), outputSigId.data() + outputSigId.size(), output_signature_index);
+        FromStringView(outputSigId, output_signature_index);
         auto signature = preprocess_state.output_signature[output_signature_index];
         if (rowIndex != "0") {
           throw std::exception("Row Index number supported.");
@@ -1208,7 +1503,31 @@ class Decompiler {
       // ; <label>:21                                      ; preds = %0
       static auto block_definition_regex = std::regex{R"(^; <label>:(\S+)\s+; preds = (.*))"};
       auto [line_number, predicates] = StringViewMatch<2>(line, block_definition_regex);
-      std::from_chars(line_number.data(), line_number.data() + line_number.size(), this->current_code_block_number);
+      FromStringView(line_number, this->current_code_block_number);
+    }
+
+    auto DecompileLines(PreprocessState& preprocess_state) {
+      for (auto line : this->lines) {
+        if (line.starts_with("  %")) {
+          this->AddCodeAssign(line, preprocess_state);
+        } else if (line.starts_with("  call ")) {
+          this->AddCodeCall(line, preprocess_state);
+        } else if (line.starts_with("  store ")) {
+          this->AddCodeStore(line);
+        } else if (line.starts_with("  ret ")) {
+          //
+        } else if (line.starts_with("  br ")) {
+          this->AddCodeBranch(line);
+        } else if (line.empty()) {
+          //
+        } else if (line.starts_with("; <label>:")) {
+          this->ParseBlockDefinition(line);
+        } else {
+          std::cerr << line << "\r\n";
+          throw std::invalid_argument("Unexpected code block");
+        }
+      }
+      this->CloseBranch();
     }
 
     auto ListConvergences() {
@@ -1258,6 +1577,7 @@ class Decompiler {
   std::vector<TypeDefinition> type_definitions;
   std::vector<CodeFunction> code_functions;
   CodeFunction current_code_function;
+  std::map<std::string_view, std::vector<std::string_view>> named_metadata;
 
   static void CreateSignatures(
       std::span<SignaturePacked> src_packed,
@@ -1295,7 +1615,7 @@ class Decompiler {
     this->output_sigs_property.clear();
     this->preprocess_state.input_signature.clear();
     this->preprocess_state.output_signature.clear();
-    this->preprocess_state.resource_bindings.clear();
+    this->preprocess_state.resource_descriptions.clear();
     this->preprocess_state.global_variables.clear();
     this->preprocess_state.resource_binding_variables.clear();
     this->pipeline_infos.clear();
@@ -1506,7 +1826,7 @@ class Decompiler {
             if (line == ";") {
               state = TokenizerState::DESCRIPTION_WHITESPACE;
             } else {
-              preprocess_state.resource_bindings.emplace_back(line);
+              preprocess_state.resource_descriptions.emplace_back(line);
             }
             line_number++;
             break;
@@ -1560,7 +1880,7 @@ class Decompiler {
             } else if (line.starts_with("@")) {
               state = TokenizerState::GLOBAL_VARIABLE;
             } else if (line.starts_with("!")) {
-              state = TokenizerState::PRAGMA_VARIABLE;
+              state = TokenizerState::NAMED_METADATA;
             } else {
               throw std::invalid_argument("Unexpected line");
             }
@@ -1575,10 +1895,29 @@ class Decompiler {
           case TokenizerState::FUNCTION_DESCRIPTION:
           case TokenizerState::FUNCTION_DECLARE:
           case TokenizerState::FUNCTION_ATTRIBUTES:
-          case TokenizerState::PRAGMA_VARIABLE:
             line_number++;
             state = TokenizerState::WHITESPACE;
             break;
+          case TokenizerState::NAMED_METADATA: {
+            // https://llvm.org/docs/LangRef.html#namedmetadatastructure
+            // !5 = !{i32 0, %"class.Texture2D<vector<float, 4> >"* undef, !"", i32 0, i32 0, i32 1, i32 2, i32 0, !6}
+            static auto regex = std::regex{R"(^(\S+) = !\{(.*)\}$)"};
+            static auto values_regex = std::regex(R"(\s*([^,"]+(("[^"]*")[^,]*|)),?)");
+
+            auto [variable_name, values_packed] = StringViewMatch<2>(line, regex);
+            auto values = StringViewSplitAll(values_packed, values_regex, 1);
+            auto len = values.size();
+            // std::cout << values_packed << "\r\n";
+            for (int i = 0; i < len; ++i) {
+              values[i] = StringViewTrim(values[i]);
+              // std::cout << values[i] << " | ";
+            }
+            // std::cout << "\r\n";
+            this->named_metadata[variable_name] = values;
+
+            line_number++;
+            state = TokenizerState::WHITESPACE;
+          } break;
           case TokenizerState::GLOBAL_VARIABLE: {
             // @C.i.22.i.i.95.i.0.hca = internal unnamed_addr constant [6 x float] [float -4.000000e+00, float -4.000000e+00, float 0xC009424EA0000000, float 0xBFDF0E5600000000, float 0x3FFD904FE0000000, float 0x3FFD904FE0000000]
             static auto regex = std::regex{R"((\S+) = (?:internal )?(?:unnamed_addr )?constant \[(\S+) x ([^\]]+)\] \[([^\]]+)\])"};
@@ -1595,7 +1934,7 @@ class Decompiler {
             decompiled << "[" << array_size << "] = { ";
 
             int array_size_number;
-            std::from_chars(array_size.data(), array_size.data() + array_size.size(), array_size_number);
+            FromStringView(array_size, array_size_number);
             for (int i = 0; i < array_size_number; ++i) {
               if (array_type == "float") {
                 decompiled << ParseFloat(values[i].second);
@@ -1614,66 +1953,19 @@ class Decompiler {
           case TokenizerState::CODE_DEFINE:
             current_code_function = CodeFunction(line);
             code_functions.push_back(current_code_function);
-            current_code_function.lines.push_back(line);
+            // current_code_function.lines.push_back(line);
             line_number++;
             state++;
             break;
           case TokenizerState::CODE_BLOCK:
-            current_code_function.lines.push_back(line);
             if (line == "}") {
               state = TokenizerState::CODE_END;
-            } else if (line.starts_with("  %")) {
-              state = TokenizerState::CODE_ASSIGN;
-            } else if (line.starts_with("  call ")) {
-              state = TokenizerState::CODE_CALL;
-            } else if (line.starts_with("  store ")) {
-              state = TokenizerState::CODE_STORE;
-            } else if (line.starts_with("  ret ")) {
-              state = TokenizerState::CODE_RETURN;
-            } else if (line.starts_with("  br ")) {
-              state = TokenizerState::CODE_BRANCH;
-            } else if (line.empty()) {
-              state = TokenizerState::CODE_BLOCK;
-              line_number++;
-            } else if (line.starts_with("; <label>:")) {
-              state = TokenizerState::CODE_BRANCH_START;
             } else {
-              throw std::invalid_argument("Unexpected code block");
+              current_code_function.lines.push_back(line);
+              line_number++;
             }
             break;
-          case TokenizerState::CODE_ASSIGN:
-            current_code_function.AddCodeAssign(line, preprocess_state);
-            state = TokenizerState::CODE_BLOCK;
-            line_number++;
-            break;
-          case TokenizerState::CODE_CALL:
-            current_code_function.AddCodeCall(line, preprocess_state);
-            state = TokenizerState::CODE_BLOCK;
-            line_number++;
-            break;
-          case TokenizerState::CODE_STORE:
-            current_code_function.AddCodeStore(line);
-            state = TokenizerState::CODE_BLOCK;
-            line_number++;
-            break;
-          case TokenizerState::CODE_RETURN:
-            line_number++;
-            state = TokenizerState::CODE_BLOCK;
-            break;
-          case TokenizerState::CODE_BRANCH:
-            current_code_function.AddCodeBranch(line);
-            state = TokenizerState::CODE_BLOCK;
-            line_number++;
-            break;
-          case TokenizerState::CODE_BRANCH_START:
-            current_code_function.ParseBlockDefinition(line);
-            state = TokenizerState::CODE_BLOCK;
-            line_number++;
-            break;
-          case TokenizerState::CODE_BRANCH_BLOCK:
-            break;
           case TokenizerState::CODE_END:
-            current_code_function.CloseBranch();
             state = TokenizerState::WHITESPACE;
             line_number++;
             break;
@@ -1699,9 +1991,147 @@ class Decompiler {
       }
     }
 
+    // Generate output
+
     std::stringstream string_stream;
+
+    // Resources
+
+    auto resource_list_reference = named_metadata["!dx.resources"][0];
+    auto resource_list_key = resource_list_reference;
+    auto resource_list = named_metadata[resource_list_key];
+
+    // SRV
+    auto srv_list_key = resource_list[0];
+    std::vector<std::string_view> srv_list;
+    if (srv_list_key != "null") {
+      srv_list = named_metadata[srv_list_key];
+    }
+    preprocess_state.srv_resources.reserve(srv_list.size());
+    for (const auto srv_key : srv_list) {
+      // srv_resources.emplace_back(named_metadata[srv_key], named_metadata);
+      auto srv_resource = SRVResource(named_metadata[srv_key], named_metadata);
+      string_stream << SRVResource::ResourceKindString(srv_resource.shape);
+      if (srv_resource.element_type != SRVResource::ComponentType::Invalid) {
+        string_stream << "<" << SRVResource::ComponentTypeString(srv_resource.element_type) << ">";
+      } else {
+        string_stream << "< (" << srv_resource.stride << " bytes) >";
+      }
+
+      srv_resource.UpdateNameFromDescription(preprocess_state.resource_descriptions);
+
+      string_stream << " " << srv_resource.name;
+      string_stream << " : register(t" << srv_resource.signature_index;
+      if (srv_resource.space != 0u) {
+        string_stream << ", space" << srv_resource.space;
+      }
+      string_stream << ");\r\n";
+      preprocess_state.srv_resources.push_back(srv_resource);
+    }
+    if (!srv_list.empty()) {
+      string_stream << "\r\n";
+    }
+
+    // UAV
+    auto uav_list_key = resource_list[1];
+    std::vector<std::string_view> uav_list;
+    if (uav_list_key != "null") {
+      uav_list = named_metadata[uav_list_key];
+    }
+    preprocess_state.uav_resources.reserve(uav_list.size());
+    for (const auto uav_key : uav_list) {
+      // uav_resources.emplace_back(named_metadata[uav_key], named_metadata);
+      auto uav_resource = UAVResource(named_metadata[uav_key], named_metadata);
+      string_stream << UAVResource::ResourceKindString(uav_resource.shape);
+      if (uav_resource.element_type != SRVResource::ComponentType::Invalid) {
+        string_stream << "<" << SRVResource::ComponentTypeString(uav_resource.element_type) << ">";
+      } else {
+        string_stream << "< (" << uav_resource.stride << " bytes) >";
+      }
+
+      uav_resource.UpdateNameFromDescription(preprocess_state.resource_descriptions);
+
+      string_stream << " " << uav_resource.name;
+      string_stream << " : register(u" << uav_resource.signature_index;
+      if (uav_resource.space != 0u) {
+        string_stream << ", space" << uav_resource.space;
+      }
+      string_stream << ");\r\n";
+      preprocess_state.uav_resources.push_back(uav_resource);
+    }
+    if (!uav_list.empty()) {
+      string_stream << "\r\n";
+    }
+
+    // CBV
+    auto cbv_list_key = resource_list[2];
+    std::vector<std::string_view> cbv_list;
+    if (cbv_list_key != "null") {
+      cbv_list = named_metadata[cbv_list_key];
+    }
+    preprocess_state.cbv_resources.reserve(cbv_list.size());
+    for (const auto cbv_key : cbv_list) {
+      // cbv_resources.emplace_back(named_metadata[cbv_key], named_metadata);
+      auto cbv_resource = CBVResource(named_metadata[cbv_key], named_metadata);
+      cbv_resource.UpdateNameFromDescription(preprocess_state.resource_descriptions);
+
+      string_stream << "cbuffer _" << cbv_resource.name;
+      string_stream << " : register(b" << cbv_resource.signature_index;
+      if (cbv_resource.space != 0u) {
+        string_stream << ", space" << cbv_resource.space;
+      }
+      string_stream << ") {\r\n";
+      string_stream << "  float4 " << cbv_resource.name;
+      string_stream << "[" << cbv_resource.buffer_size / 16 << "] : packoffset(c0);\r\n";
+      string_stream << "};\r\n";
+      preprocess_state.cbv_resources.push_back(cbv_resource);
+    }
+
+    if (!cbv_list.empty()) {
+      string_stream << "\r\n";
+    }
+
+
+
+    // sampler
+    auto sampler_list_key = resource_list[3];
+    std::vector<std::string_view> sampler_list;
+    if (sampler_list_key != "null") {
+      sampler_list = named_metadata[sampler_list_key];
+    }
+    preprocess_state.sampler_resources.reserve(sampler_list.size());
+    for (const auto sampler_key : sampler_list) {
+      // sampler_resources.emplace_back(named_metadata[sampler_key], named_metadata);
+      auto sampler_resource = SamplerResource(named_metadata[sampler_key], named_metadata);
+      sampler_resource.UpdateNameFromDescription(preprocess_state.resource_descriptions);
+
+      string_stream << "SamplerState _" << sampler_resource.name;
+      string_stream << " : register(s" << sampler_resource.signature_index;
+      if (sampler_resource.space != 0u) {
+        string_stream << ", space" << sampler_resource.space;
+      }
+      string_stream << ");\r\n";
+      preprocess_state.sampler_resources.push_back(sampler_resource);
+    }
+
+    if (!sampler_list.empty()) {
+      string_stream << "\r\n";
+    }
+
+    // for (const auto binding : preprocess_state.resource_bindings) {
+    //   if (binding.type == ResourceDescription::ResourceType::CBUFFER) {
+    //     string_stream << "cbuffer " << binding.NameString() << " : ";
+    //     string_stream << "register(";
+    //     string_stream << binding.hlsl_binding.substr(1);
+    //     string_stream << ") {\r\n";
+    //     string_stream << "};\r\n";
+    //   }
+    // }
+
+    // Parse Lines
     int line_spacing = 2;
     std::vector<int> pending_convergences = {};
+    current_code_function.DecompileLines(preprocess_state);
     auto convergences = current_code_function.ListConvergences();
     std::function<void(int line_number)> append_code_block = [&](int line_number) {
       std::string spacing;
@@ -1802,16 +2232,6 @@ class Decompiler {
       };
     };
 
-    for (const auto binding : preprocess_state.resource_bindings) {
-      if (binding.type == ResourceBinding::ResourceType::CBUFFER) {
-        string_stream << "cbuffer " << binding.NameString() << " : ";
-        string_stream << "register(";
-        string_stream << binding.hlsl_binding.substr(1);
-        string_stream << ") {\r\n";
-        
-        string_stream << "};\r\n";
-      }
-    }
     auto output_signature_count = preprocess_state.output_signature.size();
 
     if (output_signature_count > 1) {
@@ -1868,7 +2288,6 @@ class Decompiler {
 
     return string_stream.str();
   }
-
 };  // namespace Decompiler
 
 }  // namespace renodx::utils::shader::decompiler::dxc
