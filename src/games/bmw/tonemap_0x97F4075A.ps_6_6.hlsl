@@ -137,8 +137,11 @@ void main(
         r1.w = rcp(r1.w);
         r1.w = r1.w * r1.w;
         
+        
+        r1.xyz = r1.xyz * r1.www; // vignette
+        
         // vanilla code
-        //r1.xyz = r1.xyz * r1.www;
+        //r1.xyz = r1.xyz * r1.www; // vignette
         //r1.xyz = float3(0.00999999978,0.00999999978,0.00999999978) * r1.xyz;
         //r1.xyz = log2(r1.xyz);
         //r1.xyz = float3(0.159301758,0.159301758,0.159301758) * r1.xyz;
@@ -223,11 +226,11 @@ void main(
     
     if (injectedData.toneMapType == 0) // None
     {
-        outputColor.rgb *= 2.f;
+        //outputColor.rgb *= 2.f;
     }
     if (injectedData.toneMapType == 1) // DICE
     {
-        outputColor.rgb *= 2.f;
+        //outputColor.rgb *= 2.f;
         outputColor = renodx::color::grade::UserColorGrading(
               outputColor,
               injectedData.colorGradeExposure,
@@ -238,15 +241,27 @@ void main(
     }
     else if (injectedData.toneMapType == 2 || injectedData.toneMapType == 3) // RenoDX (+ ACES...)
     {
-        float vanillaMidGray = 0.36f; //old default
-            //float vanillaMidGray = 0.36f;
-            //float vanillaMidGray = 0.36f;
-        float renoDRTContrast = 1.f;
+        if (injectedData.toneMapHueCorrection == 1.f)
+        {
+            outputColor = renodx::color::correct::Hue(outputColor, renodx::tonemap::Reinhard(outputColor));
+        }
+        else if (injectedData.toneMapHueCorrection == 2.f)
+        {
+            outputColor = renodx::color::correct::Hue(outputColor, renodx::tonemap::ACESFittedBT709(outputColor));
+        }
+        else if (injectedData.toneMapHueCorrection == 3.f)
+        {
+            outputColor = renodx::color::correct::Hue(outputColor, renodx::tonemap::ACESFittedAP1(outputColor));
+        }
+        
+        //float vanillaMidGray = 0.36f; 
+        float vanillaMidGray = 0.18f; // old default
+        float renoDRTContrast = 1.8f;
         float renoDRTFlare = 0.f;
         float renoDRTShadows = 1.f; // 0.8
         float renoDRTDechroma = injectedData.colorGradeBlowout;
-        float renoDRTSaturation = 1.f; // 1.1f
-        float renoDRTHighlights = 1.f;
+        float renoDRTSaturation = 1.8f; // 1.1f
+        float renoDRTHighlights = 1.2f;
         
         renodx::tonemap::Config config = renodx::tonemap::config::Create(
               injectedData.toneMapType,
@@ -276,18 +291,26 @@ void main(
     o0.rgb = outputColor.rgb;
     
     // Gamma correction
-    o0.rgb = injectedData.toneMapGammaCorrection
-               ? renodx::math::SafePow(o0.rgb, 2.2f)
-               : renodx::color::bt709::from::SRGB(o0.rgb);
+    //o0.rgb = injectedData.toneMapGammaCorrection
+    //           ? renodx::math::SafePow(o0.rgb, 2.2f)
+    //           : renodx::color::bt709::from::SRGB(o0.rgb);
     
+    if (injectedData.toneMapGammaCorrection)
+    {
+        o0.rgb = renodx::color::correct::GammaSafe(o0.rgb);
+        o0.rgb *= injectedData.toneMapGameNits; // / 100.f?
+        o0.rgb = renodx::color::correct::GammaSafe(o0.rgb, true);
+    }
+    else
+    {
+        o0.rgb *= injectedData.toneMapGameNits; // scale by game brightness
+    }
     
-    o0.rgb *= injectedData.toneMapGameNits; // scale by game brightness
-            
     if (injectedData.toneMapType == 1) // DICE
     {
         o0.rgb = renodx::tonemap::dice::BT709(o0.rgb, injectedData.toneMapPeakNits, injectedData.toneMapGameNits / injectedData.toneMapPeakNits);
     }
-        
+            
     // output expected as PQ, so we need linear > PQ conversion
     o0.rgb = mul(renodx::color::BT709_TO_BT2020_MAT, o0.rgb);   // use bt2020
     o0.rgb /= 10000.f;                                          // Scale for PQ

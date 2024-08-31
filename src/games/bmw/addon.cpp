@@ -81,6 +81,17 @@ renodx::utils::settings::Settings settings = {
         .section = "Tone Mapping",
         .tooltip = "Emulates a 2.2 EOTF (use with HDR or sRGB)",
     },
+    new renodx::utils::settings::Setting{
+        .key = "toneMapHueCorrection",
+        .binding = &shader_injection.toneMapHueCorrection,
+        .value_type = renodx::utils::settings::SettingValueType::INTEGER,
+        .default_value = 3.f,
+        .can_reset = false,
+        .label = "Hue Correction",
+        .section = "Tone Mapping",
+        .tooltip = "Applies hue shift emulation before tonemapping",
+        .labels = {"None", "Reinhard", "ACES BT709", "ACES AP1"},
+    },
     //new renodx::utils::settings::Setting{
     //    .key = "toneMapHueCorrection",
     //    .binding = &shader_injection.toneMapHueCorrection,
@@ -177,6 +188,15 @@ renodx::utils::settings::Settings settings = {
     //    .parse = [](float value) { return value * 0.01f; },
     //},
     new renodx::utils::settings::Setting{
+        .key = "fxVignette",
+        .binding = &shader_injection.fxVignette,
+        .default_value = 50.f,
+        .label = "Vignette",
+        .section = "Effects",
+        .max = 100.f,
+        .parse = [](float value) { return value * 0.02f; },
+    },
+    new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::BUTTON,
         .label = "Discord",
         .section = "Links",
@@ -203,7 +223,7 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("toneMapGameNits", 203.f);
   //renodx::utils::settings::UpdateSetting("toneMapUINits", 203.f);
   renodx::utils::settings::UpdateSetting("toneMapGammaCorrection", 1);
-  //renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 0.f);
+  renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 0.f);
   renodx::utils::settings::UpdateSetting("colorGradeExposure", 1.f);
   renodx::utils::settings::UpdateSetting("colorGradeHighlights", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeShadows", 50.f);
