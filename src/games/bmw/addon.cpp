@@ -12,7 +12,7 @@
 //#include <embed/0xd4c3492d.h>  // tonemapper (sharpen = 0, vignette active)
 //#include <embed/0x9fbc9441.h>  // tonemapper (sharpen = 0, vignette disabled)
 
-#include <embed/0x681ffc73.h>  // tonemapper ch 4 (sharpen > 0, vignette active)
+#include <embed/0x681FFC73.h>  // tonemapper ch 4 (sharpen > 0, vignette active)
 //#include <embed/0x9312d584.h>  // tonemapper ch 4 (sharpen > 0, vignette disabled) 
 //#include <embed/0x20ea889f.h>  // tonemapper ch 4 (sharpen = 0, vignette active)
 //#include <embed/0x582ae183.h>  // tonemapper ch 4 (sharpen = 0, vignette disabled) 
@@ -35,7 +35,7 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     //CustomShaderEntry(0xd4c3492d), // tonemapper (sharpen = 0, vignette active)
     //CustomShaderEntry(0x9fbc9441), // tonemapper (sharpen = 0, vignette disabled) 
 
-    CustomShaderEntry(0x681ffc73),   // tonemapper ch 4 (sharpen > 0, vignette active)
+    CustomShaderEntry(0x681FFC73),   // tonemapper ch 4 (sharpen > 0, vignette active)
     //CustomShaderEntry(0x9312d584), // tonemapper ch 4 (sharpen > 0, vignette disabled) 
     //CustomShaderEntry(0x20ea889f), // tonemapper ch 4 (sharpen = 0, vignette active)
     //CustomShaderEntry(0x582ae183), // tonemapper ch 4 (sharpen = 0, vignette disabled) 
@@ -53,8 +53,8 @@ renodx::utils::settings::Settings settings = {
         .label = "Tone Mapper",
         .section = "Tone Mapping",
         .tooltip = "Sets the tone mapper type",
-        //.labels = {"Vanilla", "None", "ACES", "RenoDX"},
-        .labels = {"None", "DICE", "ACES", "RenoDX"},
+        .labels = {"Vanilla", "None", "ACES", "RenoDX"},
+        //.labels = {"None", "DICE", "ACES", "RenoDX"},
     },
     new renodx::utils::settings::Setting{
         .key = "toneMapPeakNits",
@@ -118,16 +118,16 @@ renodx::utils::settings::Settings settings = {
         .max = 100.f,
         .parse = [](float value) { return value * 0.01f; },
     },
-    //new renodx::utils::settings::Setting{
-    //    .key = "blend",
-    //    .binding = &shader_injection.blend,
-    //    .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
-    //    .default_value = 1,
-    //    .can_reset = false,
-    //    .label = "Blend SDR/HDR",
-    //    .section = "Tone Mapping",
-    //    .tooltip = "Enable/Disable Blend",
-    //},
+    new renodx::utils::settings::Setting{
+        .key = "blend",
+        .binding = &shader_injection.blend,
+        .value_type = renodx::utils::settings::SettingValueType::BOOLEAN,
+        .default_value = 1,
+        .can_reset = false,
+        .label = "Blend SDR/HDR",
+        .section = "Tone Mapping",
+        .tooltip = "Enable/Disable Blend",
+    },
     new renodx::utils::settings::Setting{
         .key = "colorGradeExposure",
         .binding = &shader_injection.colorGradeExposure,
@@ -229,7 +229,7 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("toneMapPeakNits", 4000.f);
   renodx::utils::settings::UpdateSetting("toneMapGameNits", 203.f);
   //renodx::utils::settings::UpdateSetting("toneMapUINits", 203.f);
-  renodx::utils::settings::UpdateSetting("toneMapGammaCorrection", 1);
+  renodx::utils::settings::UpdateSetting("toneMapGammaCorrection", 0);
   renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 0.f);
   renodx::utils::settings::UpdateSetting("colorGradeExposure", 1.f);
   renodx::utils::settings::UpdateSetting("colorGradeHighlights", 50.f);

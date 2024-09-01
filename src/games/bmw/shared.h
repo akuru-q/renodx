@@ -22,7 +22,7 @@ struct ShaderInjectData {
   float colorGradeSaturation;
   float colorGradeBlowout;
   //float colorGradeLUTStrength;
-  //float blend;
+  float blend;
   //float debugVanillaMidGrey;
 };
 
