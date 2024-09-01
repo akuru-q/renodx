@@ -173,17 +173,17 @@ renodx::utils::settings::Settings settings = {
         .max = 100.f,
         .parse = [](float value) { return value * 0.02f; },
     },
-    new renodx::utils::settings::Setting{
-        .key = "colorGradeBlowout",
-        .binding = &shader_injection.colorGradeBlowout,
-        .default_value = 70.f,
-        .label = "Blowout",
-        .section = "Color Grading",
-        .tooltip = "Controls highlight desaturation due to overexposure.",
-        .max = 100.f,
-        //.is_enabled = []() { return shader_injection.toneMapType == 3; },  // Dont enable unless RenoDRT is selected
-        .parse = [](float value) { return value * 0.01f; },
-    },
+    //new renodx::utils::settings::Setting{
+    //    .key = "colorGradeBlowout",
+    //    .binding = &shader_injection.colorGradeBlowout,
+    //    .default_value = 70.f,
+    //    .label = "Blowout",
+    //    .section = "Color Grading",
+    //    .tooltip = "Controls highlight desaturation due to overexposure.",
+    //    .max = 100.f,
+    //    //.is_enabled = []() { return shader_injection.toneMapType == 3; },  // Dont enable unless RenoDRT is selected
+    //    .parse = [](float value) { return value * 0.01f; },
+    //},
     //new renodx::utils::settings::Setting{
     //    .key = "colorGradeLUTStrength",
     //    .binding = &shader_injection.colorGradeLUTStrength,
@@ -226,18 +226,19 @@ renodx::utils::settings::Settings settings = {
 
 void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("toneMapType", 0.f);
-  renodx::utils::settings::UpdateSetting("toneMapPeakNits", 4000.f);
+  renodx::utils::settings::UpdateSetting("toneMapPeakNits", 203.f);
   renodx::utils::settings::UpdateSetting("toneMapGameNits", 203.f);
   //renodx::utils::settings::UpdateSetting("toneMapUINits", 203.f);
   renodx::utils::settings::UpdateSetting("toneMapGammaCorrection", 0);
   renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 0.f);
+  renodx::utils::settings::UpdateSetting("toneMapVanillaHueCorrection", 0.f);
   renodx::utils::settings::UpdateSetting("colorGradeExposure", 1.f);
   renodx::utils::settings::UpdateSetting("colorGradeHighlights", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeShadows", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeContrast", 50.f);
   renodx::utils::settings::UpdateSetting("colorGradeSaturation", 50.f);
-  renodx::utils::settings::UpdateSetting("colorGradeBlowout", 50.f);
-  //renodx::utils::settings::UpdateSetting("blend", 0);
+  //renodx::utils::settings::UpdateSetting("colorGradeBlowout", 50.f);
+  renodx::utils::settings::UpdateSetting("blend", 0);
   //renodx::utils::settings::UpdateSetting("toneMapHueCorrection", 50.f);
   //renodx::utils::settings::UpdateSetting("colorGradeLUTStrength", 0.f);
 }
