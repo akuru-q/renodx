@@ -8,14 +8,14 @@
 #define DEBUG_LEVEL_0
 
 #include <embed/0x97F4075A.h>  // tonemapper (sharpen > 0, vignette active)
-//#include <embed/0xf64bd119.h>  // tonemapper (sharpen > 0, vignette disabled)
-//#include <embed/0xd4c3492d.h>  // tonemapper (sharpen = 0, vignette active)
-//#include <embed/0x9fbc9441.h>  // tonemapper (sharpen = 0, vignette disabled)
+#include <embed/0xF64BD119.h>  // tonemapper (sharpen > 0, vignette disabled)
+#include <embed/0xD4C3492D.h>  // tonemapper (sharpen = 0, vignette active)
+#include <embed/0x9FBC9441.h>  // tonemapper (sharpen = 0, vignette disabled)
 
 #include <embed/0x681FFC73.h>  // tonemapper ch 4 (sharpen > 0, vignette active)
-//#include <embed/0x9312d584.h>  // tonemapper ch 4 (sharpen > 0, vignette disabled) 
-//#include <embed/0x20ea889f.h>  // tonemapper ch 4 (sharpen = 0, vignette active)
-//#include <embed/0x582ae183.h>  // tonemapper ch 4 (sharpen = 0, vignette disabled) 
+#include <embed/0x9312D584.h>  // tonemapper ch 4 (sharpen > 0, vignette disabled) 
+#include <embed/0x20EA889F.h>  // tonemapper ch 4 (sharpen = 0, vignette active)
+#include <embed/0x582AE183.h>  // tonemapper ch 4 (sharpen = 0, vignette disabled) 
 
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
@@ -31,14 +31,14 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     // mod requires UE HDR, works with OutputDevice 3/4
 
     CustomShaderEntry(0x97F4075A),   // tonemapper (sharpen > 0, vignette active)
-    //CustomShaderEntry(0xf64bd119), // tonemapper (sharpen > 0, vignette disabled) 
-    //CustomShaderEntry(0xd4c3492d), // tonemapper (sharpen = 0, vignette active)
-    //CustomShaderEntry(0x9fbc9441), // tonemapper (sharpen = 0, vignette disabled) 
+    CustomShaderEntry(0xF64BD119), // tonemapper (sharpen > 0, vignette disabled) 
+    CustomShaderEntry(0xD4C3492D), // tonemapper (sharpen = 0, vignette active)
+    CustomShaderEntry(0x9FBC9441), // tonemapper (sharpen = 0, vignette disabled) 
 
-    CustomShaderEntry(0x681FFC73),   // tonemapper ch 4 (sharpen > 0, vignette active)
-    //CustomShaderEntry(0x9312d584), // tonemapper ch 4 (sharpen > 0, vignette disabled) 
-    //CustomShaderEntry(0x20ea889f), // tonemapper ch 4 (sharpen = 0, vignette active)
-    //CustomShaderEntry(0x582ae183), // tonemapper ch 4 (sharpen = 0, vignette disabled) 
+    CustomShaderEntry(0x681FFC73), // tonemapper ch 4 (sharpen > 0, vignette active)
+    CustomShaderEntry(0x9312D584), // tonemapper ch 4 (sharpen > 0, vignette disabled) 
+    CustomShaderEntry(0x20EA889F), // tonemapper ch 4 (sharpen = 0, vignette active)
+    CustomShaderEntry(0x582AE183), // tonemapper ch 4 (sharpen = 0, vignette disabled) 
 };
 
 ShaderInjectData shader_injection;

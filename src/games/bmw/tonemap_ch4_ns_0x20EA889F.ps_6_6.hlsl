@@ -1,11 +1,15 @@
-// ---- Created with 3Dmigoto v1.3.16 on Sat Aug 24 00:37:18 2024
+// ---- Created with 3Dmigoto v1.3.16 on Sat Aug 31 17:08:11 2024
 
 #include "./shared.h"
 #include "./tonemapper.hlsl"
 
-Texture3D<float4> t4 : register(t4);
+Texture3D<float4> t6 : register(t6);
 
-Texture2D<float4> t3 : register(t3);
+Texture2D<float4> t5 : register(t5);
+
+Texture2D<float4> t4 : register(t4);
+
+Texture3D<float4> t3 : register(t3);
 
 struct t2_t
 {
@@ -16,6 +20,10 @@ StructuredBuffer<t2_t> t2 : register(t2);
 Texture2D<float4> t1 : register(t1);
 
 Texture2D<float4> t0 : register(t0);
+
+SamplerState s5_s : register(s5);
+
+SamplerState s4_s : register(s4);
 
 SamplerState s3_s : register(s3);
 
@@ -50,7 +58,7 @@ void main(
   linear noperspective float2 w0 : TEXCOORD3,
   linear noperspective float4 v1 : TEXCOORD1,
   linear noperspective float4 v2 : TEXCOORD2,
-  float2 v3 : TEXCOORD4,
+  linear noperspective float2 v3 : TEXCOORD4,
   float4 v4 : SV_POSITION0,
   out float4 o0 : SV_Target0)
 {
@@ -58,9 +66,10 @@ void main(
     uint4 bitmask, uiDest;
     float4 fDest;
 
+    // untonemapped
     r0.xy = max(cb0[15].xy, v0.xy);
     r0.xy = min(cb0[15].zw, r0.xy);
-    r0.xyzw = t0.Sample(s0_s, r0.xy).xyzw; // game in linear
+    r0.xyzw = t0.Sample(s0_s, r0.xy).xyzw;
     r1.xy = cmp(v0.xy < cb0[33].xy);
     r1.x = (int) r1.y | (int) r1.x;
     r1.yz = cmp(cb0[33].zw < v0.xy);
@@ -72,6 +81,29 @@ void main(
         r1.zw = cb0[33].zw + -cb0[33].xy;
         r1.xy = r1.xy / r1.zw;
         r2.xyz = cb1[131].zzz * r0.xyz;
+        r1.z = dot(r2.xyz, float3(0.333333343, 0.333333343, 0.333333343));
+        r1.z = max(cb0[25].w, r1.z);
+        r1.z = log2(r1.z);
+        r1.w = r1.z * cb0[25].y + cb0[25].z;
+        r1.w = r1.w * 31 + 0.5;
+        r3.z = 0.03125 * r1.w;
+        r3.xy = v3.xy;
+        r3.xy = t3.Sample(s2_s, r3.xyz).xy;
+        r1.w = r3.x / r3.y;
+        r2.w = t4.Sample(s3_s, v3.xy).x;
+        r3.x = cmp(r3.y < 0.00100000005);
+        r1.w = r3.x ? r2.w : r1.w;
+        r2.w = r2.w + -r1.w;
+        r1.w = cb0[26].z * r2.w + r1.w;
+        r2.w = log2(v1.x);
+        r1.zw = r2.ww + r1.zw;
+        r2.w = r1.z + -r1.w;
+        r1.w = -v1.y + r1.w;
+        r1.w = r1.w * cb0[26].x + v1.y;
+        r1.w = r2.w * cb0[26].y + r1.w;
+        r1.z = r1.w + -r1.z;
+        r1.z = exp2(r1.z);
+        r2.xyz = r2.xyz * r1.zzz;
         r1.z = dot(r2.xyz, float3(0.300000012, 0.589999974, 0.109999999));
         r3.xy = cb0[9].xy * v0.xy;
         r3.xy = floor(r3.xy);
@@ -123,7 +155,7 @@ void main(
         r1.xyz = cb1[131].zzz * r1.xyz;
         r4.xy = w0.xy * cb0[45].zw + cb0[45].xy;
         r4.xy = r4.xy * float2(0.5, -0.5) + float2(0.5, 0.5);
-        r4.xyz = t3.Sample(s2_s, r4.xy).xyz;
+        r4.xyz = t5.Sample(s4_s, r4.xy).xyz;
         r4.xyz = r4.xyz * cb0[42].xyz + float3(1, 1, 1);
         r1.xyz = r4.xyz * r1.xyz;
         r1.xyz = r2.xyz * r3.xyz + r1.xyz;
@@ -133,75 +165,47 @@ void main(
         r1.w = 1 + r1.w;
         r1.w = rcp(r1.w);
         r1.w = r1.w * r1.w;
-        
-        
         r1.xyz = r1.xyz * r1.www; // vignette
-        
-        // vanilla code
-        //r1.xyz = r1.xyz * r1.www; // vignette
-        //r1.xyz = float3(0.00999999978,0.00999999978,0.00999999978) * r1.xyz;
+        //r1.xyz = float3(0.00999999978, 0.00999999978, 0.00999999978) * r1.xyz;
         //r1.xyz = log2(r1.xyz);
-        //r1.xyz = float3(0.159301758,0.159301758,0.159301758) * r1.xyz;
+        //r1.xyz = float3(0.159301758, 0.159301758, 0.159301758) * r1.xyz;
         //r1.xyz = exp2(r1.xyz);
-        //r2.xyz = r1.xyz * float3(18.8515625,18.8515625,18.8515625) + float3(0.8359375,0.8359375,0.8359375);
-        //r1.xyz = r1.xyz * float3(18.6875,18.6875,18.6875) + float3(1,1,1);
+        //r2.xyz = r1.xyz * float3(18.8515625, 18.8515625, 18.8515625) + float3(0.8359375, 0.8359375, 0.8359375);
+        //r1.xyz = r1.xyz * float3(18.6875, 18.6875, 18.6875) + float3(1, 1, 1);
         //r1.xyz = rcp(r1.xyz);
         //r1.xyz = r2.xyz * r1.xyz;
         //r1.xyz = log2(r1.xyz);
-        //r1.xyz = float3(78.84375,78.84375,78.84375) * r1.xyz;
+        //r1.xyz = float3(78.84375, 78.84375, 78.84375) * r1.xyz;
         //r1.xyz = exp2(r1.xyz);
-        //r1.xyz = r1.xyz * float3(0.96875,0.96875,0.96875) + float3(0.015625,0.015625,0.015625);
-        //r1.xyz = t4.Sample(s3_s, r1.xyz).xyz;
-        
+        //r1.xyz = r1.xyz * float3(0.96875, 0.96875, 0.96875) + float3(0.015625, 0.015625, 0.015625);
+        //r1.xyz = t6.Sample(s5_s, r1.xyz).xyz;
         r1.w = v2.w * 543.309998 + v2.z;
         r1.w = sin(r1.w);
         r1.w = 493013 * r1.w;
         r1.w = frac(r1.w);
         r1.w = r1.w * 0.00390625 + -0.001953125;
-        
-        // vanilla code
-        //r1.xyz = r1.xyz * float3(1.04999995,1.04999995,1.04999995) + r1.www;
-        //r1.xyz = log2(r1.xyz);
-        //r1.xyz = float3(0.0126833133,0.0126833133,0.0126833133) * r1.xyz;
-        //r1.xyz = exp2(r1.xyz);
-        //r2.xyz = float3(-0.8359375,-0.8359375,-0.8359375) + r1.xyz;
-        //r2.xyz = max(float3(0,0,0), r2.xyz);
-        //r1.xyz = -r1.xyz * float3(18.6875,18.6875,18.6875) + float3(18.8515625,18.8515625,18.8515625);
-        //r1.xyz = r2.xyz / r1.xyz;
-        //r1.xyz = log2(r1.xyz);
-        //r1.xyz = float3(6.27739477,6.27739477,6.27739477) * r1.xyz;
-        //r1.xyz = exp2(r1.xyz);
-        //r1.xyz = float3(10000,10000,10000) * r1.xyz;
-        //r1.xyz = max(float3(9.99999975e-05,9.99999975e-05,9.99999975e-05), r1.xyz);
-        //r1.xyz = min(float3(1000,1000,1000), r1.xyz);
-        //r1.xyz = float3(-9.99999975e-05,-9.99999975e-05,-9.99999975e-05) + r1.xyz;
-        //r1.xyz = float3(0.00100000016,0.00100000016,0.00100000016) * r1.xyz;
-        //r2.x = dot(float3(1.73125386,-0.604043067,-0.0801077113), r1.xyz);
-        //r2.y = dot(float3(-0.131618932,1.13484156,-0.00867943279), r1.xyz);
-        //r2.z = dot(float3(-0.0245682523,-0.125750408,1.06563699), r1.xyz);
-        //r1.xyz = float3(12.5,12.5,12.5) * r2.xyz;
+        r1.xyz = r1.xyz * float3(1.04999995, 1.04999995, 1.04999995) + r1.www;
         if (cb0[47].w != 0)
         {
-            // vanilla code
             //r2.xyz = log2(r1.xyz);
-            //r2.xyz = float3(0.0126833133,0.0126833133,0.0126833133) * r2.xyz;
+            //r2.xyz = float3(0.0126833133, 0.0126833133, 0.0126833133) * r2.xyz;
             //r2.xyz = exp2(r2.xyz);
-            //r3.xyz = float3(-0.8359375,-0.8359375,-0.8359375) + r2.xyz;
-            //r3.xyz = max(float3(0,0,0), r3.xyz);
-            //r2.xyz = -r2.xyz * float3(18.6875,18.6875,18.6875) + float3(18.8515625,18.8515625,18.8515625);
+            //r3.xyz = float3(-0.8359375, -0.8359375, -0.8359375) + r2.xyz;
+            //r3.xyz = max(float3(0, 0, 0), r3.xyz);
+            //r2.xyz = -r2.xyz * float3(18.6875, 18.6875, 18.6875) + float3(18.8515625, 18.8515625, 18.8515625);
             //r2.xyz = r3.xyz / r2.xyz;
             //r2.xyz = log2(r2.xyz);
-            //r2.xyz = float3(6.27739477,6.27739477,6.27739477) * r2.xyz;
+            //r2.xyz = float3(6.27739477, 6.27739477, 6.27739477) * r2.xyz;
             //r2.xyz = exp2(r2.xyz);
-            //r2.xyz = float3(10000,10000,10000) * r2.xyz;
+            //r2.xyz = float3(10000, 10000, 10000) * r2.xyz;
             //r2.xyz = r2.xyz / cb0[47].zzz;
-            //r2.xyz = max(float3(6.10351999e-05,6.10351999e-05,6.10351999e-05), r2.xyz);
-            //r3.xyz = float3(12.9200001,12.9200001,12.9200001) * r2.xyz;
-            //r2.xyz = max(float3(0.00313066994,0.00313066994,0.00313066994), r2.xyz);
+            //r2.xyz = max(float3(6.10351999e-05, 6.10351999e-05, 6.10351999e-05), r2.xyz);
+            //r3.xyz = float3(12.9200001, 12.9200001, 12.9200001) * r2.xyz;
+            //r2.xyz = max(float3(0.00313066994, 0.00313066994, 0.00313066994), r2.xyz);
             //r2.xyz = log2(r2.xyz);
-            //r2.xyz = float3(0.416666657,0.416666657,0.416666657) * r2.xyz;
+            //r2.xyz = float3(0.416666657, 0.416666657, 0.416666657) * r2.xyz;
             //r2.xyz = exp2(r2.xyz);
-            //r2.xyz = r2.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
+            //r2.xyz = r2.xyz * float3(1.05499995, 1.05499995, 1.05499995) + float3(-0.0549999997, -0.0549999997, -0.0549999997);
             //r1.xyz = min(r3.xyz, r2.xyz);
         }
         o0.xyz = r1.xyz;
@@ -215,14 +219,9 @@ void main(
     float3 untonemapped = o0.xyz;
     
     // vanillaColor
-    
     r0.xy = max(cb0[15].xy, v0.xy);
     r0.xy = min(cb0[15].zw, r0.xy);
-    r0.xyzw = t0.Sample(s0_s, r0.xy).xyzw; // game in linear
-  
-    //o0 = r0;
-    //return;
-  
+    r0.xyzw = t0.Sample(s0_s, r0.xy).xyzw;
     r1.xy = cmp(v0.xy < cb0[33].xy);
     r1.x = (int) r1.y | (int) r1.x;
     r1.yz = cmp(cb0[33].zw < v0.xy);
@@ -234,6 +233,29 @@ void main(
         r1.zw = cb0[33].zw + -cb0[33].xy;
         r1.xy = r1.xy / r1.zw;
         r2.xyz = cb1[131].zzz * r0.xyz;
+        r1.z = dot(r2.xyz, float3(0.333333343, 0.333333343, 0.333333343));
+        r1.z = max(cb0[25].w, r1.z);
+        r1.z = log2(r1.z);
+        r1.w = r1.z * cb0[25].y + cb0[25].z;
+        r1.w = r1.w * 31 + 0.5;
+        r3.z = 0.03125 * r1.w;
+        r3.xy = v3.xy;
+        r3.xy = t3.Sample(s2_s, r3.xyz).xy;
+        r1.w = r3.x / r3.y;
+        r2.w = t4.Sample(s3_s, v3.xy).x;
+        r3.x = cmp(r3.y < 0.00100000005);
+        r1.w = r3.x ? r2.w : r1.w;
+        r2.w = r2.w + -r1.w;
+        r1.w = cb0[26].z * r2.w + r1.w;
+        r2.w = log2(v1.x);
+        r1.zw = r2.ww + r1.zw;
+        r2.w = r1.z + -r1.w;
+        r1.w = -v1.y + r1.w;
+        r1.w = r1.w * cb0[26].x + v1.y;
+        r1.w = r2.w * cb0[26].y + r1.w;
+        r1.z = r1.w + -r1.z;
+        r1.z = exp2(r1.z);
+        r2.xyz = r2.xyz * r1.zzz;
         r1.z = dot(r2.xyz, float3(0.300000012, 0.589999974, 0.109999999));
         r3.xy = cb0[9].xy * v0.xy;
         r3.xy = floor(r3.xy);
@@ -285,7 +307,7 @@ void main(
         r1.xyz = cb1[131].zzz * r1.xyz;
         r4.xy = w0.xy * cb0[45].zw + cb0[45].xy;
         r4.xy = r4.xy * float2(0.5, -0.5) + float2(0.5, 0.5);
-        r4.xyz = t3.Sample(s2_s, r4.xy).xyz;
+        r4.xyz = t5.Sample(s4_s, r4.xy).xyz;
         r4.xyz = r4.xyz * cb0[42].xyz + float3(1, 1, 1);
         r1.xyz = r4.xyz * r1.xyz;
         r1.xyz = r2.xyz * r3.xyz + r1.xyz;
@@ -295,72 +317,47 @@ void main(
         r1.w = 1 + r1.w;
         r1.w = rcp(r1.w);
         r1.w = r1.w * r1.w;
- 
-        // vanilla code
         r1.xyz = r1.xyz * r1.www; // vignette
-        r1.xyz = float3(0.00999999978,0.00999999978,0.00999999978) * r1.xyz;
+        r1.xyz = float3(0.00999999978, 0.00999999978, 0.00999999978) * r1.xyz;
         r1.xyz = log2(r1.xyz);
-        r1.xyz = float3(0.159301758,0.159301758,0.159301758) * r1.xyz;
+        r1.xyz = float3(0.159301758, 0.159301758, 0.159301758) * r1.xyz;
         r1.xyz = exp2(r1.xyz);
-        r2.xyz = r1.xyz * float3(18.8515625,18.8515625,18.8515625) + float3(0.8359375,0.8359375,0.8359375);
-        r1.xyz = r1.xyz * float3(18.6875,18.6875,18.6875) + float3(1,1,1);
+        r2.xyz = r1.xyz * float3(18.8515625, 18.8515625, 18.8515625) + float3(0.8359375, 0.8359375, 0.8359375);
+        r1.xyz = r1.xyz * float3(18.6875, 18.6875, 18.6875) + float3(1, 1, 1);
         r1.xyz = rcp(r1.xyz);
         r1.xyz = r2.xyz * r1.xyz;
         r1.xyz = log2(r1.xyz);
-        r1.xyz = float3(78.84375,78.84375,78.84375) * r1.xyz;
+        r1.xyz = float3(78.84375, 78.84375, 78.84375) * r1.xyz;
         r1.xyz = exp2(r1.xyz);
-        r1.xyz = r1.xyz * float3(0.96875,0.96875,0.96875) + float3(0.015625,0.015625,0.015625);
-        r1.xyz = t4.Sample(s3_s, r1.xyz).xyz;
-        
+        r1.xyz = r1.xyz * float3(0.96875, 0.96875, 0.96875) + float3(0.015625, 0.015625, 0.015625);
+        r1.xyz = t6.Sample(s5_s, r1.xyz).xyz; // lutbuilder
         r1.w = v2.w * 543.309998 + v2.z;
         r1.w = sin(r1.w);
         r1.w = 493013 * r1.w;
         r1.w = frac(r1.w);
         r1.w = r1.w * 0.00390625 + -0.001953125;
-        
-        // vanilla code
-        //r1.xyz = r1.xyz * float3(1.04999995,1.04999995,1.04999995) + r1.www;
-        //r1.xyz = log2(r1.xyz);
-        //r1.xyz = float3(0.0126833133,0.0126833133,0.0126833133) * r1.xyz;
-        //r1.xyz = exp2(r1.xyz);
-        //r2.xyz = float3(-0.8359375,-0.8359375,-0.8359375) + r1.xyz;
-        //r2.xyz = max(float3(0,0,0), r2.xyz);
-        //r1.xyz = -r1.xyz * float3(18.6875,18.6875,18.6875) + float3(18.8515625,18.8515625,18.8515625);
-        //r1.xyz = r2.xyz / r1.xyz;
-        //r1.xyz = log2(r1.xyz);
-        //r1.xyz = float3(6.27739477,6.27739477,6.27739477) * r1.xyz;
-        //r1.xyz = exp2(r1.xyz);
-        //r1.xyz = float3(10000,10000,10000) * r1.xyz;
-        //r1.xyz = max(float3(9.99999975e-05,9.99999975e-05,9.99999975e-05), r1.xyz);
-        //r1.xyz = min(float3(1000,1000,1000), r1.xyz);
-        //r1.xyz = float3(-9.99999975e-05,-9.99999975e-05,-9.99999975e-05) + r1.xyz;
-        //r1.xyz = float3(0.00100000016,0.00100000016,0.00100000016) * r1.xyz;
-        //r2.x = dot(float3(1.73125386,-0.604043067,-0.0801077113), r1.xyz);
-        //r2.y = dot(float3(-0.131618932,1.13484156,-0.00867943279), r1.xyz);
-        //r2.z = dot(float3(-0.0245682523,-0.125750408,1.06563699), r1.xyz);
-        //r1.xyz = float3(12.5,12.5,12.5) * r2.xyz;
+        //r1.xyz = r1.xyz * float3(1.04999995, 1.04999995, 1.04999995) + r1.www;
         if (cb0[47].w != 0)
         {
-            // vanilla code
             //r2.xyz = log2(r1.xyz);
-            //r2.xyz = float3(0.0126833133,0.0126833133,0.0126833133) * r2.xyz;
+            //r2.xyz = float3(0.0126833133, 0.0126833133, 0.0126833133) * r2.xyz;
             //r2.xyz = exp2(r2.xyz);
-            //r3.xyz = float3(-0.8359375,-0.8359375,-0.8359375) + r2.xyz;
-            //r3.xyz = max(float3(0,0,0), r3.xyz);
-            //r2.xyz = -r2.xyz * float3(18.6875,18.6875,18.6875) + float3(18.8515625,18.8515625,18.8515625);
+            //r3.xyz = float3(-0.8359375, -0.8359375, -0.8359375) + r2.xyz;
+            //r3.xyz = max(float3(0, 0, 0), r3.xyz);
+            //r2.xyz = -r2.xyz * float3(18.6875, 18.6875, 18.6875) + float3(18.8515625, 18.8515625, 18.8515625);
             //r2.xyz = r3.xyz / r2.xyz;
             //r2.xyz = log2(r2.xyz);
-            //r2.xyz = float3(6.27739477,6.27739477,6.27739477) * r2.xyz;
+            //r2.xyz = float3(6.27739477, 6.27739477, 6.27739477) * r2.xyz;
             //r2.xyz = exp2(r2.xyz);
-            //r2.xyz = float3(10000,10000,10000) * r2.xyz;
+            //r2.xyz = float3(10000, 10000, 10000) * r2.xyz;
             //r2.xyz = r2.xyz / cb0[47].zzz;
-            //r2.xyz = max(float3(6.10351999e-05,6.10351999e-05,6.10351999e-05), r2.xyz);
-            //r3.xyz = float3(12.9200001,12.9200001,12.9200001) * r2.xyz;
-            //r2.xyz = max(float3(0.00313066994,0.00313066994,0.00313066994), r2.xyz);
+            //r2.xyz = max(float3(6.10351999e-05, 6.10351999e-05, 6.10351999e-05), r2.xyz);
+            //r3.xyz = float3(12.9200001, 12.9200001, 12.9200001) * r2.xyz;
+            //r2.xyz = max(float3(0.00313066994, 0.00313066994, 0.00313066994), r2.xyz);
             //r2.xyz = log2(r2.xyz);
-            //r2.xyz = float3(0.416666657,0.416666657,0.416666657) * r2.xyz;
+            //r2.xyz = float3(0.416666657, 0.416666657, 0.416666657) * r2.xyz;
             //r2.xyz = exp2(r2.xyz);
-            //r2.xyz = r2.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
+            //r2.xyz = r2.xyz * float3(1.05499995, 1.05499995, 1.05499995) + float3(-0.0549999997, -0.0549999997, -0.0549999997);
             //r1.xyz = min(r3.xyz, r2.xyz);
         }
         o0.xyz = r1.xyz;
@@ -374,6 +371,6 @@ void main(
     float3 vanillaColor = o0.xyz;
     
     o0.xyz = applyUserTonemap(untonemapped, vanillaColor, 0.18f, injectedData);
-        
+    
     return;
 }

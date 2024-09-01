@@ -135,7 +135,7 @@ void main(
         r1.w = r1.w * r1.w;
         
         
-        r1.xyz = r1.xyz * r1.www; // vignette
+        //r1.xyz = r1.xyz * r1.www; // vignette
         
         // vanilla code
         //r1.xyz = r1.xyz * r1.www; // vignette
@@ -297,7 +297,7 @@ void main(
         r1.w = r1.w * r1.w;
  
         // vanilla code
-        r1.xyz = r1.xyz * r1.www; // vignette
+        //r1.xyz = r1.xyz * r1.www; // vignette
         r1.xyz = float3(0.00999999978,0.00999999978,0.00999999978) * r1.xyz;
         r1.xyz = log2(r1.xyz);
         r1.xyz = float3(0.159301758,0.159301758,0.159301758) * r1.xyz;

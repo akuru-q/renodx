@@ -47,12 +47,24 @@ float3 applyUserTonemap(float3 untonemapped, float3 vanillaColor, float midGray,
         outputColor = renodx::color::correct::Hue(outputColor, renodx::tonemap::ACESFittedAP1(outputColor));
     }
     
+    // apply user color grading to vanilla, if vanilla is selected
+    if (injectedData.toneMapType == 0)
+    {
+        outputColor = renodx::color::grade::UserColorGrading(
+          outputColor,
+          injectedData.colorGradeExposure,
+          injectedData.colorGradeHighlights,
+          injectedData.colorGradeShadows,
+          injectedData.colorGradeContrast,
+          injectedData.colorGradeSaturation);
+    }
+    
     // RenoDRT with ACES-like adjustments
     float vanillaMidGray = 0.18f; // old default
     float renoDRTContrast = 1.8f;
     float renoDRTFlare = 0.f;
-    float renoDRTShadows = 1.f; // 0.8
-    float renoDRTDechroma = injectedData.colorGradeBlowout;
+    float renoDRTShadows = 1.f; // ch4 might need 1.3f shadow boost, 1.f default
+    float renoDRTDechroma = 1.6f;  //injectedData.colorGradeBlowout;
     float renoDRTSaturation = 1.8f; // 1.1f
     float renoDRTHighlights = 1.2f;
         
@@ -79,17 +91,27 @@ float3 applyUserTonemap(float3 untonemapped, float3 vanillaColor, float midGray,
         
     outputColor = renodx::tonemap::config::Apply(outputColor, config);
     
-    if (injectedData.toneMapType == 2) // ACES
+    // Hue Correction for ACES as well
+    if (injectedData.toneMapType == 2)
     {
-        if (injectedData.toneMapHueCorrection) //hue correction
+        if (injectedData.toneMapVanillaHueCorrection) //hue correction
         {
             float3 hueCorrected = renodx::color::correct::Hue(outputColor, vanillaColor);
             outputColor = lerp(outputColor, hueCorrected, injectedData.toneMapVanillaHueCorrection);
         }
     }
     
-    if (injectedData.toneMapType != 0 && injectedData.blend) //HDR/SDR blend for color correction
-    {
+     //HDR/SDR blend for color correction, with user color grading for vanilla
+    if (injectedData.toneMapType != 0 && injectedData.blend)
+    {   
+        vanillaColor = renodx::color::grade::UserColorGrading(
+          vanillaColor,
+          injectedData.colorGradeExposure,
+          injectedData.colorGradeHighlights,
+          injectedData.colorGradeShadows,
+          injectedData.colorGradeContrast,
+          injectedData.colorGradeSaturation);
+        
         outputColor = lerp(vanillaColor, outputColor, saturate(vanillaColor)); // combine tonemappers 
     }
     
