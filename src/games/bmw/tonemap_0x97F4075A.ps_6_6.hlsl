@@ -239,7 +239,7 @@ void main(
               injectedData.colorGradeContrast,
               injectedData.colorGradeSaturation);
     }
-    else if (injectedData.toneMapType == 2 || injectedData.toneMapType == 3) // RenoDX (+ ACES...)
+    else if (injectedData.toneMapType == 2 || injectedData.toneMapType == 3) // RenoDX + ACES
     {
         if (injectedData.toneMapHueCorrection == 1.f)
         {
@@ -254,7 +254,6 @@ void main(
             outputColor = renodx::color::correct::Hue(outputColor, renodx::tonemap::ACESFittedAP1(outputColor));
         }
         
-        //float vanillaMidGray = 0.36f; 
         float vanillaMidGray = 0.18f; // old default
         float renoDRTContrast = 1.8f;
         float renoDRTFlare = 0.f;
@@ -289,11 +288,6 @@ void main(
     }
     
     o0.rgb = outputColor.rgb;
-    
-    // Gamma correction
-    //o0.rgb = injectedData.toneMapGammaCorrection
-    //           ? renodx::math::SafePow(o0.rgb, 2.2f)
-    //           : renodx::color::bt709::from::SRGB(o0.rgb);
     
     if (injectedData.toneMapGammaCorrection)
     {

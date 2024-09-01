@@ -7,7 +7,15 @@
 
 #define DEBUG_LEVEL_0
 
-#include <embed/0x97F4075A.h>  // tonemapper
+#include <embed/0x97F4075A.h>  // tonemapper (sharpen > 0, vignette active)
+//#include <embed/0xf64bd119.h>  // tonemapper (sharpen > 0, vignette disabled)
+//#include <embed/0xd4c3492d.h>  // tonemapper (sharpen = 0, vignette active)
+//#include <embed/0x9fbc9441.h>  // tonemapper (sharpen = 0, vignette disabled)
+
+#include <embed/0x681ffc73.h>  // tonemapper ch 4 (sharpen > 0, vignette active)
+//#include <embed/0x9312d584.h>  // tonemapper ch 4 (sharpen > 0, vignette disabled) 
+//#include <embed/0x20ea889f.h>  // tonemapper ch 4 (sharpen = 0, vignette active)
+//#include <embed/0x582ae183.h>  // tonemapper ch 4 (sharpen = 0, vignette disabled) 
 
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
@@ -20,9 +28,17 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
+    // mod requires UE HDR, works with OutputDevice 3/4
 
-    CustomShaderEntry(0x97F4075A) // tonemapper (outputdevice 3, sharpen > 0, vignette active)
+    CustomShaderEntry(0x97F4075A),   // tonemapper (sharpen > 0, vignette active)
+    //CustomShaderEntry(0xf64bd119), // tonemapper (sharpen > 0, vignette disabled) 
+    //CustomShaderEntry(0xd4c3492d), // tonemapper (sharpen = 0, vignette active)
+    //CustomShaderEntry(0x9fbc9441), // tonemapper (sharpen = 0, vignette disabled) 
 
+    CustomShaderEntry(0x681ffc73),   // tonemapper ch 4 (sharpen > 0, vignette active)
+    //CustomShaderEntry(0x9312d584), // tonemapper ch 4 (sharpen > 0, vignette disabled) 
+    //CustomShaderEntry(0x20ea889f), // tonemapper ch 4 (sharpen = 0, vignette active)
+    //CustomShaderEntry(0x582ae183), // tonemapper ch 4 (sharpen = 0, vignette disabled) 
 };
 
 ShaderInjectData shader_injection;
@@ -92,16 +108,16 @@ renodx::utils::settings::Settings settings = {
         .tooltip = "Applies hue shift emulation before tonemapping",
         .labels = {"None", "Reinhard", "ACES BT709", "ACES AP1"},
     },
-    //new renodx::utils::settings::Setting{
-    //    .key = "toneMapHueCorrection",
-    //    .binding = &shader_injection.toneMapHueCorrection,
-    //    .default_value = 50.f,
-    //    .label = "Hue Correction",
-    //    .section = "Tone Mapping",
-    //    .tooltip = "Emulates hue shifting from the vanilla tonemapper",
-    //    .max = 100.f,
-    //    .parse = [](float value) { return value * 0.01f; },
-    //},
+    new renodx::utils::settings::Setting{
+        .key = "toneMapHueCorrection",
+        .binding = &shader_injection.toneMapVanillaHueCorrection,
+        .default_value = 50.f,
+        .label = "Vanilla Hue Correction",
+        .section = "Tone Mapping",
+        .tooltip = "Emulates hue shifting from the vanilla tonemapper",
+        .max = 100.f,
+        .parse = [](float value) { return value * 0.01f; },
+    },
     //new renodx::utils::settings::Setting{
     //    .key = "blend",
     //    .binding = &shader_injection.blend,
@@ -187,15 +203,6 @@ renodx::utils::settings::Settings settings = {
     //    .max = 100.f,
     //    .parse = [](float value) { return value * 0.01f; },
     //},
-    new renodx::utils::settings::Setting{
-        .key = "fxVignette",
-        .binding = &shader_injection.fxVignette,
-        .default_value = 50.f,
-        .label = "Vignette",
-        .section = "Effects",
-        .max = 100.f,
-        .parse = [](float value) { return value * 0.02f; },
-    },
     new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::BUTTON,
         .label = "Discord",
