@@ -18,7 +18,7 @@ float3 applyUserTonemap(float3 untonemapped, float3 vanillaColor, float midGray,
     
     // lutted SDR in PQ
     vanillaColor = max(0, vanillaColor); // clamp out of gamut
-    vanillaColor = renodx::color::bt2020::from::PQ(vanillaColor); // convert to PQ
+    vanillaColor = renodx::color::bt2020::from::PQ(vanillaColor); // convert to linear
     vanillaColor = mul(renodx::color::BT2020_TO_BT709_MAT, vanillaColor);
     vanillaColor *= 125.f;
     
@@ -64,7 +64,7 @@ float3 applyUserTonemap(float3 untonemapped, float3 vanillaColor, float midGray,
     float renoDRTContrast = 1.8f;
     float renoDRTFlare = 0.f;
     float renoDRTShadows = 1.f; // ch4 might need 1.3f shadow boost, 1.f default
-    float renoDRTDechroma = 1.6f;  //injectedData.colorGradeBlowout;
+    float renoDRTDechroma = 0.8f;
     float renoDRTSaturation = 1.8f; // 1.1f
     float renoDRTHighlights = 1.2f;
         
@@ -86,20 +86,21 @@ float3 applyUserTonemap(float3 untonemapped, float3 vanillaColor, float midGray,
               renoDRTSaturation,
               renoDRTDechroma,
               renoDRTFlare,
-              renodx::tonemap::config::hue_correction_type::CUSTOM, (injectedData.toneMapVanillaHueCorrection), vanillaColor
+              //renodx::tonemap::config::hue_correction_type::CUSTOM, (injectedData.toneMapVanillaHueCorrection), vanillaColor
+              renodx::tonemap::config::hue_correction_type::INPUT, 0.f, outputColor
             );
         
     outputColor = renodx::tonemap::config::Apply(outputColor, config);
     
     // Hue Correction for ACES as well
-    if (injectedData.toneMapType == 2)
-    {
-        if (injectedData.toneMapVanillaHueCorrection) //hue correction
-        {
-            float3 hueCorrected = renodx::color::correct::Hue(outputColor, vanillaColor);
-            outputColor = lerp(outputColor, hueCorrected, injectedData.toneMapVanillaHueCorrection);
-        }
-    }
+    //if (injectedData.toneMapType == 2)
+    //{
+    //    if (injectedData.toneMapVanillaHueCorrection) //hue correction
+    //    {
+    //        float3 hueCorrected = renodx::color::correct::Hue(outputColor, vanillaColor);
+    //        outputColor = lerp(outputColor, hueCorrected, injectedData.toneMapVanillaHueCorrection);
+    //    }
+    //}
     
      //HDR/SDR blend for color correction, with user color grading for vanilla
     if (injectedData.toneMapType != 0 && injectedData.blend)
