@@ -188,6 +188,20 @@ class Decompiler {
     throw std::invalid_argument("Could not parse index");
   }
 
+  static uint32_t IndexFromChar(const char input) {
+    switch (input) {
+      case 'r':
+      case 'x': return 0;
+      case 'g':
+      case 'y': return 1;
+      case 'b':
+      case 'z': return 2;
+      case 'a':
+      case 'w': return 3;
+      default:  return -1;
+    }
+  }
+
   static std::string ParseBool(std::string_view input) {
     if (input.at(0) == '%') {
       return std::format("_{}", input.substr(1));
@@ -613,13 +627,7 @@ class Decompiler {
       STRUCTURE,
     } format;
 
-    enum class ResourceDimensions {
-      NA,
-      DIMENSION_2D,
-      DIMENSION_3D,
-      BUFFER,
-      READ_ONLY,
-    } dimensions;
+    std::string_view dimensions;
 
     std::string_view id;
 
@@ -659,23 +667,14 @@ class Decompiler {
       throw std::invalid_argument("Unknown ResourceFormat");
     }
 
-    static ResourceDimensions ResourceDimensionsFromString(std::string_view input) {
-      if (input == "NA") return ResourceDimensions::NA;
-      if (input == "2d") return ResourceDimensions::DIMENSION_2D;
-      if (input == "3d") return ResourceDimensions::DIMENSION_3D;
-      if (input == "buf") return ResourceDimensions::BUFFER;
-      if (input == "r/o") return ResourceDimensions::READ_ONLY;
-      throw std::invalid_argument("Unknown ResourceDimensions");
-    }
-
     explicit ResourceDescription(std::string_view line) {
       // ; _31_33                            cbuffer      NA          NA     CB0            cb0     1
-      static auto regex = std::regex{R"(; (.{30})\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*)"};
+      static auto regex = std::regex{R"(; (.{30}\S*)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*)"};
       auto [name, type, format, dimensions, id, hlslBinding, count] = StringViewMatch<7>(line, regex);
       this->name = StringViewTrim(name);
       this->type = ResourceTypeFromString(type);
       this->format = ResourceFormatFromString(format);
-      this->dimensions = ResourceDimensionsFromString(dimensions);
+      this->dimensions = dimensions;
       this->id = id;
       this->hlsl_binding = hlslBinding;
       FromStringView(count, this->count);
@@ -931,7 +930,7 @@ class Decompiler {
 
   struct CBVResource : Resource {
     uint32_t buffer_size;
-    std::map<std::string, std::string_view> data_types;
+    std::unordered_map<std::string, std::string_view> data_types;
     explicit CBVResource(
         std::vector<std::string_view>& metadata,
         std::span<ResourceDescription> resource_descriptions,
@@ -997,7 +996,7 @@ class Decompiler {
       auto type_strings = StringViewSplitAll(types, type_split, 1);
       int value = 0;
       for (const auto type : type_strings) {
-        this->types.emplace_back(std::format("value{:02}", value++), type);
+        this->types.emplace_back(std::format("value{:03}", value++), type);
       }
     }
   };
@@ -1145,24 +1144,27 @@ class Decompiler {
         if (functionName == "@dx.op.createHandle") {
           //   %dx.types.Handle @dx.op.createHandle(i32 57, i8 2, i32 0, i32 0, i1 false)  ; CreateHandle(resourceClass,rangeId,index,nonUniformIndex)
           auto [opNumber, resource_class, range_id, index, nonUniformIndex] = StringViewSplit<5>(functionParamsString, param_regex, 2);
-          int index_value;
-          FromStringView(index, index_value);
+          uint32_t index_value = std::stoi(std::string(index));
+          uint32_t range_id_value = std::stoi(std::string(range_id));
+          uint32_t range_count = 0;
+          auto check_resource = [&](const Resource& resource) {
+            return (resource.signature_index == index_value) && (range_id_value == range_count++);
+          };
           if (resource_class == "0") {
-            auto srv = preprocess_state.srv_resources[index_value];
+            auto srv = preprocess_state.srv_resources[range_id_value];
             decompiled = std::format("// texture _{} = {};", variable, srv.name);
-            preprocess_state.resource_binding_variables[std::string(variable)] = {srv.name, index_value};
+            preprocess_state.resource_binding_variables[std::string(variable)] = {srv.name, range_id_value};
           } else if (resource_class == "1") {
-            auto uav = preprocess_state.uav_resources[index_value];
-            decompiled = std::format("// rwtexture _{} = {};", variable, uav.name);
-            preprocess_state.resource_binding_variables[std::string(variable)] = {uav.name, index_value};
+            auto uav = preprocess_state.srv_resources[range_id_value];
+            preprocess_state.resource_binding_variables[std::string(variable)] = {uav.name, range_id_value};
           } else if (resource_class == "2") {
-            auto cbv = preprocess_state.cbv_resources[index_value];
+            auto cbv = preprocess_state.cbv_resources[range_id_value];
             decompiled = std::format("// cbuffer _{} = {};", variable, cbv.name);
-            preprocess_state.resource_binding_variables[std::string(variable)] = {cbv.name, index_value};
+            preprocess_state.resource_binding_variables[std::string(variable)] = {cbv.name, range_id_value};
           } else if (resource_class == "3") {
-            auto sampler = preprocess_state.sampler_resources[index_value];
+            auto sampler = preprocess_state.sampler_resources[range_id_value];
             decompiled = std::format("// SamplerState _{} = {};", variable, sampler.name);
-            preprocess_state.resource_binding_variables[std::string(variable)] = {sampler.name, index_value};
+            preprocess_state.resource_binding_variables[std::string(variable)] = {sampler.name, range_id_value};
           } else {
             throw std::invalid_argument("Unknown resource type");
           }
@@ -1252,10 +1254,7 @@ class Decompiler {
           FromStringView(regIndex, cbv_variable_index);
           auto name = preprocess_state.CBVVariableNameAtIndex(cbv_resource, cbv_variable_index);
 
-          // decompiled = std::format("// float4 _{} = {}.{};", variable, cbv_resource.name, cbv_variable_index);
-          // decompiled = std::format("float4 _{} = {}.;", variable, binding_name, cbv_index);
-          // decompiled = std::format("float4 _{} = {}_value{:02};", variable, cbv_resource.name, cbv_variable_index);
-          decompiled = std::format("// float4 _{} = {}[{}u];", variable, cbv_resource.name, cbv_variable_index);
+          // decompiled = std::format("// float4 _{} = {}[{}u];", variable, cbv_resource.name, cbv_variable_index);
           preprocess_state.cbv_binding_variables[variable] = {&cbv_resource, cbv_variable_index};
 
         } else if (functionName == "@dx.op.cbufferLoadLegacy.i32") {
@@ -1268,9 +1267,7 @@ class Decompiler {
           FromStringView(regIndex, cbv_variable_index);
           auto name = preprocess_state.CBVVariableNameAtIndex(cbv_resource, cbv_variable_index);
 
-          // preprocess_state.cbv_resources[index_value];
-          // decompiled = std::format("int4 _{} = {}[{}u];", variable, cbv_name, ParseInt(regIndex));
-          decompiled = std::format("// int4 _{} = {}[{}u];", variable, cbv_resource.name, cbv_variable_index);
+          // decompiled = std::format("// int4 _{} = {}[{}u];", variable, cbv_resource.name, cbv_variable_index);
           preprocess_state.cbv_binding_variables[variable] = {&cbv_resource, cbv_variable_index};
         } else if (functionName == "@dx.op.unary.f32") {
           auto [opNumber, value] = StringViewSplit<2>(functionParamsString, param_regex, 2);
@@ -1324,21 +1321,37 @@ class Decompiler {
           const bool has_offset_y = offset1 != "undef";
           const bool has_offset_z = offset2 != "undef";
           std::string coords;
-          if (has_coord_z) {
-            coords = std::format("int3({}, {}, {})", ParseInt(coord0), ParseInt(coord1), ParseInt(coord2));
-          } else {
-            coords = std::format("int3({}, {}, 0u)", ParseInt(coord0), ParseInt(coord1));
+          auto srv_resource = preprocess_state.srv_resources[preprocess_state.resource_binding_variables.at(ref_resource).second];
+          switch (srv_resource.shape) {
+            case Resource::ResourceKind::Texture1D:
+              coords = std::format("int2({}, {})", ParseInt(coord0), ParseInt(mipLevelOrSampleCount));
+              break;
+            case Resource::ResourceKind::Texture2DMS:
+              coords = std::format("int2({}, {})", ParseInt(coord0), ParseInt(coord1));
+              break;
+            case Resource::ResourceKind::Texture1DArray:
+            case Resource::ResourceKind::Texture2D:
+              coords = std::format("int3({}, {}, {})", ParseInt(coord0), ParseInt(coord1), ParseInt(mipLevelOrSampleCount));
+              break;
+            case Resource::ResourceKind::Texture2DMSArray:
+              coords = std::format("int3({}, {}, {})", ParseInt(coord0), ParseInt(coord1), ParseInt(coord2));
+              break;
+            case Resource::ResourceKind::Texture2DArray:
+            case Resource::ResourceKind::Texture3D:
+              coords = std::format("int4({}, {}, {}, {})", ParseInt(coord0), ParseInt(coord1), ParseInt(coord2), ParseInt(mipLevelOrSampleCount));
+              break;
+            default:
+              throw std::exception("Unknown shape");
           }
+
           std::string offset;
           if (has_offset_z) {
             offset = std::format("int3({}, {}, {})", ParseInt(offset0), ParseInt(offset1), ParseInt(offset2));
-          } else if (has_coord_z) {
+          } else if (has_offset_y) {
             offset = std::format("int2({}, {})", ParseInt(offset0), ParseInt(offset1));
           } else {
             offset = std::format("{}", ParseInt(offset0));
           }
-          // skip mipLevelOrSampleCount
-          auto srv_resource = preprocess_state.srv_resources[preprocess_state.resource_binding_variables.at(ref_resource).second];
           if (offset == "undef" || offset == "0" || offset == "int2(0, 0)" || offset == "int3(0, 0, 0)") {
             decompiled = std::format("{} _{} = {}.Load({});", srv_resource.data_type, variable, srv_resource.name, coords);
           } else {
@@ -1346,6 +1359,7 @@ class Decompiler {
           }
 
         } else if (functionName == "@dx.op.sample.f32") {
+          //  call %dx.types.ResRet.f32 @dx.op.sample.f32(i32 60, %dx.types.Handle %1, %dx.types.Handle %2, float %4, float %5, float undef, float undef, i32 0, i32 0, i32 undef, float undef)  ; Sample(srv,sampler,coord0,coord1,coord2,coord3,offset0,offset1,offset2,clamp)
           auto [opNumber, srv, sampler, coord0, coord1, coord2, coord3, offset0, offset1, offset2, clamp] = StringViewSplit<11>(functionParamsString, param_regex, 2);
           auto ref_resource = std::string{srv.substr(1)};
           auto ref_sampler = std::string{sampler.substr(1)};
@@ -1375,8 +1389,8 @@ class Decompiler {
             throw std::invalid_argument("Unknown clamp");
           }
 
-          auto srv_resource = preprocess_state.srv_resources[preprocess_state.resource_binding_variables.at(ref_resource).second];
-          auto sampler_resource = preprocess_state.sampler_resources[preprocess_state.resource_binding_variables.at(ref_sampler).second];
+          auto srv_resource = preprocess_state.srv_resources[preprocess_state.resource_binding_variables[ref_resource].second];
+          auto sampler_resource = preprocess_state.sampler_resources[preprocess_state.resource_binding_variables[ref_sampler].second];
           if (offset == "0" || offset == "int2(0, 0)" || offset == "int3(0, 0, 0)") {
             decompiled = std::format("{} _{} = {}.Sample({}, {});", srv_resource.data_type, variable, srv_resource.name, sampler_resource.name, coords);
           } else {
@@ -1460,10 +1474,75 @@ class Decompiler {
           }
         } else if (functionName == "@dx.op.threadId.i32") {
         } else if (functionName == "@dx.op.threadIdInGroup.i32") {
+        } else if (functionName == "@dx.op.isSpecialFloat.f32") {
+          // call i1 @dx.op.isSpecialFloat.f32(i32 8, float %309)  ; IsNaN(value)
+          auto [opNumber, value] = StringViewSplit<2>(functionParamsString, param_regex, 2);
+          decompiled = std::format("bool _{} = isnan({});", variable, ParseFloat(value));
+        } else if (functionName == "@dx.op.getDimensions") {
+          // call %dx.types.Dimensions @dx.op.getDimensions(i32 72, %dx.types.Handle %1, i32 0)  ; GetDimensions(handle,mipLevel)
+          auto [opNumber, handle, mip_level] = StringViewSplit<3>(functionParamsString, param_regex, 2);
+
+          auto ref_resource = std::string{handle.substr(1)};
+          auto srv_resource = preprocess_state.srv_resources[preprocess_state.resource_binding_variables.at(ref_resource).second];
+          if (mip_level != "0") {
+            std::cerr << "Unexpected mipLevel: " << mip_level << "\n";
+            throw std::invalid_argument("Unexpected mipLevel");
+          }
+          switch (srv_resource.shape) {
+            case SRVResource::ResourceKind::Texture1D:
+
+              decompiled = std::format("uint _{}; {}.GetDimensions(_{});", variable, srv_resource.name, variable);
+              break;
+            case SRVResource::ResourceKind::Texture2D:
+              decompiled = std::format("uint2 _{}; {}.GetDimensions(_{}.x, _{}.y);", variable, srv_resource.name, variable, variable);
+              break;
+            case SRVResource::ResourceKind::Texture2DArray:
+            case SRVResource::ResourceKind::Texture3D:
+              decompiled = std::format("uint3 _{}; {}.GetDimensions(_{}.x, _{}.y, _{}.z);", variable, srv_resource.name, variable, variable, variable);
+              break;
+            default:
+              std::cerr << "Unexpected shape: " << Resource::ResourceKindString(srv_resource.shape) << "\n";
+              throw std::invalid_argument("Unexpected shape");
+          }
+
+        } else if (functionName == "@dx.op.sampleCmpLevelZero.f32") {
+          // call %dx.types.ResRet.f32 @dx.op.sampleCmpLevelZero.f32(i32 65, %dx.types.Handle %10, %dx.types.Handle %14, float %528, float %530, float %407, float undef, i32 0, i32 0, i32 undef, float %441)  ; SampleCmpLevelZero(srv,sampler,coord0,coord1,coord2,coord3,offset0,offset1,offset2,compareValue)
+          // call %dx.types.ResRet.f32 @dx.op.sampleCmpLevelZero.f32(i32 65, %dx.types.Handle %2, %dx.types.Handle %4, float %232, float %234, float %159, float undef, i32 0, i32 0, i32 undef, float %158)  ; SampleCmpLevelZero(srv,sampler,coord0,coord1,coord2,coord3,offset0,offset1,offset2,compareValue)
+          auto [op, srv, sampler, coord0, coord1, coord2, coord3, offset0, offset1, offset2, compareValue] = StringViewSplit<11>(functionParamsString, param_regex, 2);
+
+          auto ref_resource = std::string{srv.substr(1)};
+          auto ref_sampler = std::string{sampler.substr(1)};
+
+          const bool has_coord_z = coord2 != "undef";
+          const bool has_coord_w = coord3 != "undef";
+          const bool has_offset_y = offset1 != "undef";
+          const bool has_offset_z = offset2 != "undef";
+          std::string coords;
+          if (has_coord_w) {
+            coords = std::format("float4({}, {}, {}, {})", ParseFloat(coord0), ParseFloat(coord1), ParseFloat(coord2), ParseFloat(coord3));
+          } else if (has_coord_z) {
+            coords = std::format("float3({}, {}, {})", ParseFloat(coord0), ParseFloat(coord1), ParseFloat(coord2));
+          } else {
+            coords = std::format("float2({}, {})", ParseFloat(coord0), ParseFloat(coord1));
+          }
+          std::string offset;
+          if (has_offset_z) {
+            offset = std::format("int3({}, {}, {})", ParseInt(offset0), ParseInt(offset1), ParseInt(offset2));
+          } else if (has_offset_y) {
+            offset = std::format("int2({}, {})", ParseInt(offset0), ParseInt(offset1));
+          } else {
+            offset = std::format("{}", ParseInt(offset0));
+          }
+
+          auto srv_resource = preprocess_state.srv_resources[preprocess_state.resource_binding_variables[ref_resource].second];
+          auto sampler_resource = preprocess_state.sampler_resources[preprocess_state.resource_binding_variables[ref_sampler].second];
+
+          decompiled = std::format("{} _{} = {}.SampleCmpLevelZero({}, {}, {});", srv_resource.data_type, variable, srv_resource.name, sampler_resource.name, coords, ParseFloat(compareValue));
+
         } else {
           std::cerr << line << "\n";
           std::cerr << "Function name: " << functionName << "\n";
-          throw std::invalid_argument("Unknown function name");
+          throw std::invalid_argument("Unknown assign function name");
         }
         // decompiled = std::format("// {} _{} = {}({})", type, variable, functionName, functionParams);
         // decompiled = "// " + std::string{comment};
@@ -1478,7 +1557,7 @@ class Decompiler {
 
           int real_index = cbv_variable_index;
           char sub_index = VECTOR_INDEXES[literal_index];
-          std::string suffix = std::format("{:02}{}", real_index, sub_index);
+          std::string suffix = std::format("{:03}{}", real_index, sub_index);
           decompiled = std::format("float _{} = {}_{};", variable, cbv_resource->name, suffix);
           cbv_resource->data_types[suffix] = "float";
         } else if (type == R"(%dx.types.CBufRet.i32)") {
@@ -1488,14 +1567,17 @@ class Decompiler {
 
           int real_index = cbv_variable_index;
           char sub_index = VECTOR_INDEXES[literal_index];
-          std::string suffix = std::format("{:02}{}", real_index, sub_index);
+          std::string suffix = std::format("{:03}{}", real_index, sub_index);
           decompiled = std::format("uint _{} = {}_{};", variable, cbv_resource->name, suffix);
           cbv_resource->data_types[suffix] = "uint";
         } else if (type == R"(%dx.types.ResRet.f32)") {
           decompiled = std::format("float _{} = {}.{};", variable, ParseVariable(input), ParseIndex(index));
         } else if (type == R"(%dx.types.ResRet.i32)") {
           decompiled = std::format("int _{} = {}.{};", variable, ParseVariable(input), ParseIndex(index));
+        } else if (type == R"(%dx.types.Dimensions)") {
+          decompiled = std::format("uint _{} = {}.{};", variable, ParseVariable(input), ParseIndex(index));
         } else {
+          std::cerr << type << "\n";
           throw std::invalid_argument("Unknown extractvalue type");
         }
       } else if (instruction == "shl") {
@@ -1507,6 +1589,14 @@ class Decompiler {
         }
       } else if (instruction == "lshr") {
         auto [no_unsigned_wrap, no_signed_wrap, a, b] = StringViewMatch<4>(assignment, std::regex{R"(lshr (nuw )?(nsw )?(?:i32) (\S+), (\S+))"});
+        if (no_signed_wrap.empty()) {
+          decompiled = std::format("uint _{} = {} >> {};", variable, ParseInt(a), ParseInt(b));
+        } else {
+          decompiled = std::format("int _{} = {} >> {};", variable, ParseInt(a), ParseInt(b));
+        }
+      } else if (instruction == "ashr") {
+        // %95 = ashr i32 %68, 2
+        auto [no_unsigned_wrap, no_signed_wrap, a, b] = StringViewMatch<4>(assignment, std::regex{R"(ashr (nuw )?(nsw )?(?:i32) (\S+), (\S+))"});
         if (no_signed_wrap.empty()) {
           decompiled = std::format("uint _{} = {} >> {};", variable, ParseInt(a), ParseInt(b));
         } else {
@@ -1540,7 +1630,9 @@ class Decompiler {
         decompiled = std::format("float _{} = {} - {};", variable, ParseFloat(a), ParseFloat(b));
       } else if (instruction == "fcmp") {
         // %39 = fcmp fast ogt float %37, 0.000000e+00
-        auto [op, type, a, b] = StringViewMatch<4>(assignment, std::regex{R"(fcmp (?:fast )?(\S+) (\S+) (\S+), (\S+))"});
+        auto [fast, op, type, a, b] = StringViewMatch<5>(assignment, std::regex{R"(fcmp (fast )?(\S+) (\S+) (\S+), (\S+))"});
+
+        // Missing fast support
 
         if (op == "false") {
           decompiled = std::format("bool _{} = false;", variable);
@@ -1647,6 +1739,14 @@ class Decompiler {
         } else {
           decompiled = std::format("{} _{} = {} & {};", ParseType(type), variable, ParseInt(a), ParseInt(b));
         }
+      } else if (instruction == "urem") {
+        //   %100 = urem i32 %99, 5
+        auto [type, a, b] = StringViewMatch<3>(assignment, std::regex{R"(urem (\S+) (\S+), (\S+))"});
+        decompiled = std::format("uint _{} = {} % {};", variable, ParseInt(a), ParseInt(b));
+      } else if (instruction == "srem") {
+        //   %100 = urem i32 %99, 5
+        auto [type, a, b] = StringViewMatch<3>(assignment, std::regex{R"(srem (\S+) (\S+), (\S+))"});
+        decompiled = std::format("int _{} = {} % {};", variable, ParseInt(a), ParseInt(b));
       } else if (instruction == "or") {
         auto [type, a, b] = StringViewMatch<3>(assignment, std::regex{R"(or (\S+) (\S+), (\S+))"});
         if (type == "i1") {
@@ -1777,6 +1877,10 @@ class Decompiler {
       // auto paramMatches = string_view_split_all(functionParamsString, paramRegex, {1, 2});
       if (functionName == "@llvm.lifetime.start") {
       } else if (functionName == "@llvm.lifetime.end") {
+      } else if (functionName == "@dx.op.discard") {
+        // call void @dx.op.discard(i32 82, i1 true)  ; Discard(condition)
+        auto [opNumber, condition] = StringViewSplit<2>(functionParamsString, param_regex, 2);
+        decompiled = std::format("discard({})", ParseBool(condition));
       } else if (functionName == "@dx.op.storeOutput.f32") {
         // call void @dx.op.storeOutput.f32(i32 5, i32 0, i32 0, i8 0, float %2772)  ; StoreOutput(outputSigId,rowIndex,colIndex,value)
         auto [opNumber, outputSigId, rowIndex, colIndex, value] = StringViewSplit<5>(functionParamsString, param_regex, 2);
@@ -1784,7 +1888,7 @@ class Decompiler {
         FromStringView(outputSigId, output_signature_index);
         auto signature = preprocess_state.output_signature[output_signature_index];
         if (rowIndex != "0") {
-          throw std::exception("Row Index number supported.");
+          throw std::exception("Row index not supported.");
         }
         if (signature.packed.MaskString() == "1") {
           if (ParseIndex(colIndex) != "x") {
@@ -1798,7 +1902,7 @@ class Decompiler {
       } else {
         std::cerr << line << "\n";
         std::cerr << "Function name: " << functionName << "\n";
-        throw std::invalid_argument("Unknown function name");
+        throw std::invalid_argument("Unknown call function name");
       }
 
       if (!decompiled.empty()) {
@@ -2122,10 +2226,14 @@ class Decompiler {
             line_number++;
             break;
           case TokenizerState::DESCRIPTION_BUFFER_DEFINITION_TYPE:
-            current_buffer_definition = BufferDefinition(line);
-            buffer_definitions.push_back(current_buffer_definition);
-            state++;
-            line_number++;
+            if (line == ";") {
+              state = TokenizerState::DESCRIPTION_BUFFER_DEFINITION_TYPE_COMPLETE;
+            } else {
+              current_buffer_definition = BufferDefinition(line);
+              buffer_definitions.push_back(current_buffer_definition);
+              state++;
+              line_number++;
+            }
             break;
           case TokenizerState::DESCRIPTION_BUFFER_DEFINITION_TYPE_BLOCK_START:
             if (line != "; {") {
@@ -2202,7 +2310,7 @@ class Decompiler {
               CreateSignatures(output_sigs_packed, output_sigs_property, preprocess_state.output_signature);
               created_signatures = true;
             };
-            if (line == "") {
+            if (line.empty() || line[0] == '\0') {
               line_number++;
             } else if (line[0] == '%') {
               state = TokenizerState::TYPE_DEFINITION;
@@ -2313,7 +2421,9 @@ class Decompiler {
           default:
             break;
         }
-        // std::cout << prestate << ": " << line << std::endl;
+#if DECOMPILER_DXC_DEBUG >= 2
+        std::cout << prestate << ": " << line << std::endl;
+#endif
       } catch (const std::invalid_argument& ex) {
         std::cerr << ex.what() << " at line: " << line_number + 1 << std::endl
                   << "  >>>" << line << "<<<" << std::endl;
@@ -2494,7 +2604,22 @@ class Decompiler {
       string_stream << "  float4 " << cbv_resource.name;
       string_stream << "[" << ceil(static_cast<float>(cbv_resource.buffer_size) / 16.f) << "] : packoffset(c0);\n";
 #else
-      for (const auto& [suffix, type] : cbv_resource.data_types) {
+      std::vector<std::pair<std::string, std::string_view>> sorted(cbv_resource.data_types.begin(), cbv_resource.data_types.end());
+      std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) {
+        auto& [a_suffix, a_type] = a;
+        auto& [b_suffix, b_type] = b;
+        auto a_marker = a_suffix.length() - 1;
+        auto b_marker = b_suffix.length() - 1;
+        auto a_index1 = std::stoi(a_suffix.substr(0, a_marker));
+        auto b_index1 = std::stoi(b_suffix.substr(0, b_marker));
+        auto a_index2 = IndexFromChar(a_suffix[a_marker]);
+        auto b_index2 = IndexFromChar(b_suffix[b_marker]);
+        return (a_index1 == b_index1)
+                   ? a_index2 < b_index2
+                   : a_index1 < b_index1;
+      });
+
+      for (const auto& [suffix, type] : sorted) {
         string_stream << "  " << type << " " << cbv_resource.name << "_" << suffix;
         auto marker = suffix.length() - 1;
         string_stream << " : packoffset(c" << std::format("{}.{}", suffix.substr(0, marker), suffix.substr(marker)) << ");\n";
@@ -2506,7 +2631,8 @@ class Decompiler {
 
     // sampler
     for (const auto& sampler_resource : preprocess_state.sampler_resources) {
-      string_stream << "SamplerState " << sampler_resource.name;
+      string_stream << StringViewMatch(sampler_resource.pointer, std::regex(R"(.*struct\.([^*"]+).*)"));
+      string_stream << " " << sampler_resource.name;
       string_stream << " : register(s" << sampler_resource.signature_index;
       if (sampler_resource.space != 0u) {
         string_stream << ", space" << sampler_resource.space;
@@ -2525,7 +2651,6 @@ class Decompiler {
     // }
 
     // Parse Lines
-    int line_spacing = 2;
     std::vector<int> pending_convergences = {};
     std::vector<std::set<int>> pending_recursions = {};
     std::vector<int> current_loops = {};
@@ -2559,9 +2684,20 @@ class Decompiler {
     }
 #endif
 
-    std::function<void(int line_number)> append_code_block = [&](int line_number) {
-      std::string spacing;
+    int line_spacing = 0;
+    std::string spacing;
+    auto indent_spacing = [&]() {
+      line_spacing += 2;
+      spacing = "";
       spacing.insert(0, line_spacing, ' ');
+    };
+    auto unindent_spacing = [&]() {
+      line_spacing -= 2;
+      spacing = "";
+      spacing.insert(0, line_spacing, ' ');
+    };
+
+    std::function<void(int line_number)> append_code_block = [&](int line_number) {
       std::set<int> recursion_pops;
       if (!pending_recursions.empty()) {
         recursion_pops = pending_recursions.rbegin()[0];
@@ -2572,17 +2708,14 @@ class Decompiler {
         pending_recursions.push_back(recursions[line_number]);
         current_loops.push_back(line_number);
         string_stream << spacing << "while(true) {\n";
-        line_spacing += 2;
-        spacing.insert(0, 2, ' ');
+        indent_spacing();
         // break at these
       }
 
       auto on_complete = [&]() {
         if (using_recursion) {
           string_stream << spacing << "break;\n";
-          line_spacing -= 2;
-          spacing = "";
-          spacing.insert(0, line_spacing, ' ');
+          unindent_spacing();
           string_stream << spacing << "}\n";
           pending_recursions.pop_back();
           current_loops.pop_back();
@@ -2590,7 +2723,7 @@ class Decompiler {
       };
 
       auto& code_block = current_code_function.code_blocks[line_number];
-#if DECOMPILER_DXC_DEBUG > 1
+#if DECOMPILER_DXC_DEBUG >= 1
       string_stream << spacing << "// fn:start " << line_number << "\n";
       if (!pending_convergences.empty()) {
         string_stream << spacing << "// fn:pending ";
@@ -2619,12 +2752,12 @@ class Decompiler {
         if (current_loop == code_block.branch.branch_condition_true) {
           string_stream << spacing << "continue;\n";  // go back
         } else if (next_convergence == branch_number) {
-#if DECOMPILER_DXC_DEBUG > 1
+#if DECOMPILER_DXC_DEBUG >= 1
           string_stream << spacing << "// fn:converge " << line_number << " => " << next_convergence << "\n";
 #endif
           // noop
         } else if (std::find(pending_convergences.begin(), pending_convergences.end(), branch_number) != pending_convergences.end()) {
-          string_stream << spacing << "// Warning: needs break " << line_number << " => " << code_block.branch.branch_condition_true << "\n";
+          string_stream << spacing << "break;\n";
         } else {
           append_code_block(branch_number);
         }
@@ -2642,18 +2775,18 @@ class Decompiler {
 
       if (code_block.branch.branch_condition_true == next_convergence) {
         string_stream << spacing << "if (!" << code_block.branch.branch_condition << ") {\n";
-        line_spacing += 2;
+        indent_spacing();
         on_branch(code_block.branch.branch_condition_false);
-        line_spacing -= 2;
+        unindent_spacing();
         string_stream << spacing << "}\n";
         return on_complete();
       }
 
       if (code_block.branch.branch_condition_false == next_convergence) {
         string_stream << spacing << "if (" << code_block.branch.branch_condition << ") {\n";
-        line_spacing += 2;
+        indent_spacing();
         on_branch(code_block.branch.branch_condition_true);
-        line_spacing -= 2;
+        unindent_spacing();
         string_stream << spacing << "}\n";
         return on_complete();
       }
@@ -2666,6 +2799,11 @@ class Decompiler {
             && (convergence_line_number == code_block.branch.branch_condition_false || callers.contains(code_block.branch.branch_condition_false))) {
           if (convergence_line_number == next_convergence) break;
           pair_convergence = convergence_line_number;
+          if (!pending_convergences.empty()) {
+            // Need to possible break
+            string_stream << spacing << "do {\n";
+            indent_spacing();
+          }
           pending_convergences.push_back(pair_convergence);
           break;
         }
@@ -2673,42 +2811,47 @@ class Decompiler {
 
       if (pair_convergence == code_block.branch.branch_condition_true) {
         string_stream << spacing << "if (!" << code_block.branch.branch_condition << ") {\n";
-        line_spacing += 2;
+        indent_spacing();
         on_branch(code_block.branch.branch_condition_false);
-        line_spacing -= 2;
+        unindent_spacing();
         string_stream << spacing << "}\n";
         // Only print else
       } else if (pair_convergence == code_block.branch.branch_condition_false) {
         string_stream << spacing << "if (" << code_block.branch.branch_condition << ") {\n";
-        line_spacing += 2;
+        indent_spacing();
         on_branch(code_block.branch.branch_condition_true);
-        line_spacing -= 2;
+        unindent_spacing();
         string_stream << spacing << "}\n";
       } else if (code_block.branch.branch_condition_true < code_block.branch.branch_condition_false) {
         string_stream << spacing << "if (" << code_block.branch.branch_condition << ") {\n";
-        line_spacing += 2;
+        indent_spacing();
         on_branch(code_block.branch.branch_condition_true);
-        line_spacing -= 2;
+        unindent_spacing();
         string_stream << spacing << "} else {\n";
-        line_spacing += 2;
+        indent_spacing();
         on_branch(code_block.branch.branch_condition_false);
-        line_spacing -= 2;
+        unindent_spacing();
         string_stream << spacing << "}\n";
       } else {
         string_stream << spacing << "if (!" << code_block.branch.branch_condition << ") {\n";
-        line_spacing += 2;
+        indent_spacing();
         on_branch(code_block.branch.branch_condition_false);
-        line_spacing -= 2;
+        unindent_spacing();
         string_stream << spacing << "} else {\n";
-        line_spacing += 2;
+        indent_spacing();
         on_branch(code_block.branch.branch_condition_true);
-        line_spacing -= 2;
+        unindent_spacing();
         string_stream << spacing << "}\n";
       }
 
       if (pair_convergence != -1) {
         pending_convergences.pop_back();
+        bool is_empty = pending_convergences.empty();
         on_branch(pair_convergence);
+        if (!is_empty) {
+          unindent_spacing();
+          string_stream << spacing << "} while (false);\n";
+        }
       };
       on_complete();
     };
@@ -2750,7 +2893,9 @@ class Decompiler {
       string_stream << " " << signature.VariableString() << ";\n";
     }
 
+    indent_spacing();
     append_code_block(0);
+    unindent_spacing();
 
     if (output_signature_count == 1) {
       string_stream << "  return " << preprocess_state.output_signature[0].VariableString() << ";\n";
