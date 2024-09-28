@@ -15,8 +15,13 @@
 #include <embed/0x3387BE75.h>  // UI -- map view
 
 #include <embed/0x5D15CFEE.h>  // Videos
-#include <embed/0xFEADBE48.h>  // Tonemapper!!
-#include <embed/0xEA314404.h>  // Wardrobe tonemapper
+
+#include <embed/0xFEADBE48.h>  // old version tonemapper!!
+#include <embed/0xEA314404.h>  // old Wardrobe tonemapper
+
+#include <embed/0x435147EB.h> // new 1.10 wardrobe tonemapper
+#include <embed/0x6957D92E.h> // new 1.10 fxaa tonemapper
+#include <embed/0xAC16F431.h> // new 1.10 taa + none tonemapper
 
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
@@ -37,8 +42,11 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0x21E7062A),  // UI -- fixes clamp when swapping char in battle
     CustomShaderEntry(0x3387BE75),  // UI -- map view
     CustomShaderEntry(0x5D15CFEE),  // Videos
-    CustomShaderEntry(0xFEADBE48),  // Tonemapper!!
-    CustomShaderEntry(0xEA314404),  // Wardrobe tonemapper
+    CustomShaderEntry(0xFEADBE48),  // old Tonemapper!!
+    CustomShaderEntry(0xEA314404),  // old Wardrobe tonemapper
+    CustomShaderEntry(0x435147EB),  // new 1.10 wardrobe tonemapper
+    CustomShaderEntry(0x6957D92E),  // new 1.10 fxaa tonemapper
+    CustomShaderEntry(0xAC16F431),  // new 1.10 taa + none tonemapper
 
 };
 
