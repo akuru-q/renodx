@@ -11,7 +11,8 @@
 #include <embed/0xCE8ED088.h>  // UI -- tutorial texts
 #include <embed/0x98AD427A.h>  // UI -- fixes artifacts
 #include <embed/0x9F6B73CA.h>  // UI -- fixes battle artifacts
-#include <embed/0x21E7062A.h>  // UI -- fixes clamp when swapping char in battle
+#include <embed/0x21E7062A.h>  // UI -- old, fixes clamp when swapping char in battle
+#include <embed/0xF43F5013.h>  // UI -- new 1.10, fixes clamp when swapping char in battle
 #include <embed/0x3387BE75.h>  // UI -- map view
 
 #include <embed/0x5D15CFEE.h>  // Videos
@@ -39,7 +40,8 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0xCE8ED088),  // UI -- tutorial texts
     CustomShaderEntry(0x98AD427A),  // UI -- fixes artifacts
     CustomShaderEntry(0x9F6B73CA),  // UI -- fixes battle artifacts
-    CustomShaderEntry(0x21E7062A),  // UI -- fixes clamp when swapping char in battle
+    CustomShaderEntry(0x21E7062A),  // UI -- old, fixes clamp when swapping char in battle
+    CustomShaderEntry(0xF43F5013),  // UI -- new 1.10, fixes clamp when swapping char in battle
     CustomShaderEntry(0x3387BE75),  // UI -- map view
     CustomShaderEntry(0x5D15CFEE),  // Videos
     CustomShaderEntry(0xFEADBE48),  // old Tonemapper!!
@@ -188,7 +190,7 @@ renodx::utils::settings::Settings settings = {
         .can_reset = false,
         .label = "FXAA",
         .section = "Effects",
-        .tooltip = "Enable/Disable FXAA",
+        .tooltip = "Enable/Disable FXAA (only needed for older versions of the game)",
     },
     //new renodx::utils::settings::Setting{
     //    .key = "debugVanillaMidGrey",
@@ -199,6 +201,50 @@ renodx::utils::settings::Settings settings = {
     //    .max = 100.f,
     //    .parse = [](float value) { return value * 0.01f; },
     //},
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::TEXT,
+        .label = "RenoDX by ShortFuse, game mod by akuru",
+        .section = "About",
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+        .label = "HDR Den Discord",
+        .section = "About",
+        .group = "button-line-1",
+        .tint = 0x5865F2,
+        .on_change = []() {
+          system("start https://discord.gg/5WZXDpmbpP");
+        },
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+        .label = "Github",
+        .section = "About",
+        .group = "button-line-1",
+        .on_change = []() {
+          system("start https://github.com/clshortfuse/renodx");
+        },
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+        .label = "ShortFuse's Ko-Fi",
+        .section = "About",
+        .group = "button-line-1",
+        .tint = 0xFF5F5F,
+        .on_change = []() {
+          system("start https://ko-fi.com/shortfuse");
+        },
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+        .label = "HDR Den's Ko-Fi",
+        .section = "About",
+        .group = "button-line-1",
+        .tint = 0xFF5F5F,
+        .on_change = []() {
+          system("start https://ko-fi.com/hdrden");
+        },
+    }
 };
 
 void OnPresetOff() {
@@ -216,7 +262,7 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("blend", 0);
   // Start PostProcess effects on/off
   renodx::utils::settings::UpdateSetting("fxBloom", 50.f);
-  renodx::utils::settings::UpdateSetting("fxFxaa", 1);
+  //renodx::utils::settings::UpdateSetting("fxFxaa", 1);
 }
 
 }  // namespace
