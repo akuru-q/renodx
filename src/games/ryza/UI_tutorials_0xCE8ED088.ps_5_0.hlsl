@@ -30,8 +30,8 @@ void main(
   o0.xyzw = HdrRangeInv * r0.xyzw;
     
   // new  
-  o0.xyz = sign(o0.rgb) * pow(abs(o0.xyz), 2.2f); 
-  o0.rgb *= injectedData.toneMapUINits / 80.f;
+  //o0.xyz = sign(o0.rgb) * pow(abs(o0.xyz), 2.2f); 
+  //o0.rgb *= injectedData.toneMapUINits / 80.f;
   
   // without this fix, the gust logo will stay on-screen in the main menu 
   o0.w = fAlphaRate;

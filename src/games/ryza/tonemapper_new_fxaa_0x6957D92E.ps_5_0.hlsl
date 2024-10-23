@@ -296,12 +296,13 @@ void main(
     
     outputColor = applyUserTonemap(untonemapped, vanillaColor, renodx::color::y::from::BT709(vanMidGray.rgb)); //Apply our custom tonemapper from tonemapper.hlsl
     
-    outputColor = sign(outputColor) * pow(abs(outputColor), fGamma);
-    outputColor = sign(outputColor) * pow(abs(outputColor), 2.2f);
+    //outputColor = sign(outputColor) * pow(abs(outputColor), fGamma);
     
-    outputColor *= injectedData.toneMapGameNits; // Scale by user nits
+    //outputColor.rgb = renodx::math::SafePow(outputColor.rgb, 2.2f);
+    
+    outputColor.rgb *= injectedData.toneMapGameNits / injectedData.toneMapUINits;
 
-    outputColor.rgb /= 80.f;
+    outputColor = renodx::math::SafePow(outputColor, 1 / 2.2);
     
     o0.xyz = outputColor.xyz; //end custom tonemapper
     
