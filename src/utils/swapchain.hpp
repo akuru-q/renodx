@@ -15,8 +15,9 @@
 #include <crc32_hash.hpp>
 #include <include/reshade.hpp>
 
-#include "./resource.hpp"
 #include "./device.hpp"
+#include "./platform.hpp"
+#include "./resource.hpp"
 
 namespace renodx::utils::swapchain {
 
@@ -216,18 +217,15 @@ static reshade::api::resource_view& GetDepthStencil(reshade::api::command_list* 
 static bool IsDirectX(reshade::api::swapchain* swapchain) {
   auto* device = swapchain->get_device();
   return device::IsDirectX(device);
-  
 }
 
-static std::optional<float> GetPeakNits(reshade::api::swapchain* swapchain) {
-  if (!IsDirectX(swapchain)) return std::nullopt;
-
+static std::optional<DXGI_OUTPUT_DESC1> GetDirectXOutputDesc1(reshade::api::swapchain* swapchain) {
   auto* native_swapchain = reinterpret_cast<IDXGISwapChain*>(swapchain->get_native());
 
   IDXGISwapChain4* swapchain4;
 
   if (!SUCCEEDED(native_swapchain->QueryInterface(IID_PPV_ARGS(&swapchain4)))) {
-    reshade::log::message(reshade::log::level::error, "GetPeakNits(Failed to get native swap chain)");
+    reshade::log::message(reshade::log::level::error, "GetDirectXOutputDesc1(Failed to get native swap chain)");
     return std::nullopt;
   }
 
@@ -240,7 +238,7 @@ static std::optional<float> GetPeakNits(reshade::api::swapchain* swapchain) {
   swapchain4 = nullptr;
 
   if (!SUCCEEDED(hr)) {
-    reshade::log::message(reshade::log::level::error, "GetPeakNits(Failed to get containing output)");
+    reshade::log::message(reshade::log::level::error, "GetDirectXOutputDesc1(Failed to get containing output)");
     return std::nullopt;
   }
 
@@ -251,7 +249,7 @@ static std::optional<float> GetPeakNits(reshade::api::swapchain* swapchain) {
   output = nullptr;
 
   if (!SUCCEEDED(hr)) {
-    reshade::log::message(reshade::log::level::error, "GetPeakNits(Failed to query output6)");
+    reshade::log::message(reshade::log::level::error, "GetDirectXOutputDesc1(Failed to query output6)");
     return std::nullopt;
   }
 
@@ -264,59 +262,91 @@ static std::optional<float> GetPeakNits(reshade::api::swapchain* swapchain) {
   output6 = nullptr;
 
   if (!SUCCEEDED(hr)) {
-    reshade::log::message(reshade::log::level::error, "GetPeakNits(Failed to get output desc)");
+    reshade::log::message(reshade::log::level::error, "GetDirectXOutputDesc1(Failed to get output desc)");
     return std::nullopt;
   }
+  return output_desc;
+}
+
+static std::optional<float> GetPeakNits(reshade::api::swapchain* swapchain) {
+  if (!IsDirectX(swapchain)) return std::nullopt;
+
+  auto output_desc = GetDirectXOutputDesc1(swapchain);
+  if (!output_desc.has_value()) return std::nullopt;
 
   // Current display colorspace (not swapchain)
-  if (output_desc.ColorSpace != DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
-      && output_desc.ColorSpace != DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) {
+  if (output_desc->ColorSpace != DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
+      && output_desc->ColorSpace != DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) {
+    reshade::log::message(reshade::log::level::warning, "GetPeakNits(Not HDR)");
     // Not WCG/HDR
     return std::nullopt;
   }
 
-  return output_desc.MaxLuminance;
+  return output_desc->MaxLuminance;
+}
+
+static std::optional<float> GetSDRWhiteNits(reshade::api::swapchain* swapchain) {
+  if (!IsDirectX(swapchain)) return std::nullopt;
+
+  auto output_desc = GetDirectXOutputDesc1(swapchain);
+  if (!output_desc.has_value()) return std::nullopt;
+
+  auto path = renodx::utils::platform::GetPathInfo(output_desc->Monitor);
+  if (!path.has_value()) return std::nullopt;
+
+  DISPLAYCONFIG_SDR_WHITE_LEVEL white_level = {};
+  white_level.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL;
+  white_level.header.size = sizeof(white_level);
+  white_level.header.adapterId = path->targetInfo.adapterId;
+  white_level.header.id = path->targetInfo.id;
+  if (DisplayConfigGetDeviceInfo(&white_level.header) == ERROR_SUCCESS) {
+    return static_cast<float>(white_level.SDRWhiteLevel) / 1000 * 80;  // From wingdi.h.
+  }
+
+  return std::nullopt;
 }
 
 static bool ChangeColorSpace(reshade::api::swapchain* swapchain, reshade::api::color_space color_space) {
-  if (!IsDirectX(swapchain)) return false;
+  if (IsDirectX(swapchain)) {
+    DXGI_COLOR_SPACE_TYPE dx_color_space = DXGI_COLOR_SPACE_CUSTOM;
+    switch (color_space) {
+      case reshade::api::color_space::srgb_nonlinear:       dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709; break;
+      case reshade::api::color_space::extended_srgb_linear: dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709; break;
+      case reshade::api::color_space::hdr10_st2084:         dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020; break;
+      case reshade::api::color_space::hdr10_hlg:            dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020; break;
+      default:                                              return false;
+    }
 
-  DXGI_COLOR_SPACE_TYPE dx_color_space = DXGI_COLOR_SPACE_CUSTOM;
-  switch (color_space) {
-    case reshade::api::color_space::srgb_nonlinear:       dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709; break;
-    case reshade::api::color_space::extended_srgb_linear: dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709; break;
-    case reshade::api::color_space::hdr10_st2084:         dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020; break;
-    case reshade::api::color_space::hdr10_hlg:            dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020; break;
-    default:                                              return false;
-  }
+    auto* native_swapchain = reinterpret_cast<IDXGISwapChain*>(swapchain->get_native());
 
-  auto* native_swapchain = reinterpret_cast<IDXGISwapChain*>(swapchain->get_native());
+    IDXGISwapChain4* swapchain4;
 
-  IDXGISwapChain4* swapchain4;
+    if (!SUCCEEDED(native_swapchain->QueryInterface(IID_PPV_ARGS(&swapchain4)))) {
+      reshade::log::message(reshade::log::level::error, "changeColorSpace(Failed to get native swap chain)");
+      return false;
+    }
 
-  if (!SUCCEEDED(native_swapchain->QueryInterface(IID_PPV_ARGS(&swapchain4)))) {
-    reshade::log::message(reshade::log::level::error, "changeColorSpace(Failed to get native swap chain)");
-    return false;
-  }
+    const HRESULT hr = swapchain4->SetColorSpace1(dx_color_space);
 
-  const HRESULT hr = swapchain4->SetColorSpace1(dx_color_space);
+    {
+      // Notify SpecialK of color space change
+      // {018B57E4-1493-4953-ADF2-DE6D99CC05E5}
+      static constexpr GUID SKID_SWAP_CHAIN_COLOR_SPACE =
+          {0x18b57e4, 0x1493, 0x4953, {0xad, 0xf2, 0xde, 0x6d, 0x99, 0xcc, 0x5, 0xe5}};
 
-  {
-    // Notify SpecialK of color space change
-    // {018B57E4-1493-4953-ADF2-DE6D99CC05E5}
-    static constexpr GUID SKID_SWAP_CHAIN_COLOR_SPACE =
-        {0x18b57e4, 0x1493, 0x4953, {0xad, 0xf2, 0xde, 0x6d, 0x99, 0xcc, 0x5, 0xe5}};
+      swapchain4->SetPrivateData(
+          SKID_SWAP_CHAIN_COLOR_SPACE,
+          sizeof(DXGI_COLOR_SPACE_TYPE),
+          &dx_color_space);
+    }
 
-    swapchain4->SetPrivateData(
-        SKID_SWAP_CHAIN_COLOR_SPACE,
-        sizeof(DXGI_COLOR_SPACE_TYPE),
-        &dx_color_space);
-  }
-
-  swapchain4->Release();
-  swapchain4 = nullptr;
-  if (!SUCCEEDED(hr)) {
-    return false;
+    swapchain4->Release();
+    swapchain4 = nullptr;
+    if (!SUCCEEDED(hr)) {
+      return false;
+    }
+  } else {
+    // Vulkan ???
   }
 
   std::unique_lock lock(internal::mutex);
