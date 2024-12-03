@@ -18,8 +18,10 @@ jobs:
       - name: Install ninja-build tool
         uses: seanmiddleditch/gha-setup-ninja@v5
 
-      - name: Setup VS Dev Environment
-        uses: seanmiddleditch/gha-setup-vsdevenv@v4
+      - name: Configure build for amd64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
 
       - name: Configure CMake (x64)
         run: cmake --preset ninja-x64
@@ -27,11 +29,16 @@ jobs:
       - name: Build (x64)
         run: cmake --build --preset ninja-x64-release --verbose
 
-      - name: Configure CMake (x32)
-        run: cmake --preset ninja-x32
+      - name: Configure build for x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_x86
 
-      - name: Build (x32)
-        run: cmake --build --preset ninja-x32-release --verbose
+      - name: Configure CMake (x86)
+        run: cmake --preset ninja-x86
+
+      - name: Build (x86)
+        run: cmake --build --preset ninja-x86-release --verbose
 
       - name: Prepare Web Listing
         run: md www
@@ -39,7 +46,7 @@ jobs:
       - name: Copy Binaries (x64)
         run: copy build\Release\*.addon64 www\
 
-      - name: Copy Binaries (x32)
+      - name: Copy Binaries (x86)
         run: copy build32\Release\*.addon32 www\
 
       - name: Copy Binaries (Tools)
