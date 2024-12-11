@@ -160,6 +160,8 @@ struct __declspec(uuid("3224946b-5c5f-478a-8691-83fbb9f88f1b")) CommandListData 
 struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
   std::unordered_map<uint32_t, ShaderDetails> shader_details;
   std::unordered_map<uint64_t, ResourceViewDetails> resource_view_details;
+  std::unordered_set<uint64_t> live_resource_view_handles;
+  std::unordered_set<uint64_t> live_resource_handles;
   std::vector<CommandListData> command_list_data;
   std::unordered_map<uint64_t, std::vector<reshade::api::pipeline_layout_param>> pipeline_layout_params;
   std::shared_mutex mutex;
@@ -190,17 +192,16 @@ struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
         pair != resource_view_details.end()) {
       details = pair->second;
       auto device_api = device->get_api();
-      if (device_api == reshade::api::device_api::d3d11) {
-        auto resource_view_tag = renodx::utils::trace::GetDebugName(device_api, resource_view);
-        if (resource_view_tag.has_value()) {
-          details.resource_view_tag = resource_view_tag.value();
-        }
 
-        if (details.resource_desc.type != reshade::api::resource_type::unknown) {
-          auto resource_tag = renodx::utils::trace::GetDebugName(device_api, details.resource);
-          if (resource_tag.has_value()) {
-            details.resource_tag = resource_tag.value();
-          }
+      auto resource_view_tag = renodx::utils::trace::GetDebugName(device_api, resource_view);
+      if (resource_view_tag.has_value()) {
+        details.resource_view_tag = resource_view_tag.value();
+      }
+
+      if (details.resource_desc.type != reshade::api::resource_type::unknown) {
+        auto resource_tag = renodx::utils::trace::GetDebugName(device_api, details.resource);
+        if (resource_tag.has_value()) {
+          details.resource_tag = resource_tag.value();
         }
       }
 
@@ -236,6 +237,7 @@ uint32_t setting_nav_item = 0;
 struct SettingSelection {
   uint32_t shader_hash = 0;
   uint64_t resource_handle = 0;
+  uint64_t resource_view_handle = 0;
   int shader_view = 0;
 
   bool is_pinned = false;
@@ -264,16 +266,23 @@ void MakeSelectionCurrent(SettingSelection selection) {
       marked_current |=
           item.is_current =
               (item.resource_handle == selection.resource_handle);
+    } else if (selection.resource_view_handle != 0u) {
+      marked_current |=
+          item.is_current =
+              (item.resource_view_handle == selection.resource_view_handle);
     }
   }
   if (marked_current) return;
   for (auto& item : setting_open_tabs) {
     if (item.is_pinned) continue;
 
-    if ((selection.shader_hash != 0u && item.shader_hash != 0u)
-        || (selection.resource_handle != 0u && item.resource_handle != 0u)) {
+    if (
+        (selection.shader_hash != 0u && item.shader_hash != 0u)
+        || (selection.resource_handle != 0u && item.resource_handle != 0u)
+        || (selection.resource_view_handle != 0u && item.resource_view_handle != 0u)) {
       item.shader_hash = selection.shader_hash;
       item.resource_handle = selection.resource_handle;
+      item.resource_view_handle = selection.resource_view_handle;
       item.is_current = true;
       return;
     }
@@ -291,6 +300,11 @@ SettingSelection& GetSelection(SettingSelection& selection) {
     }
     if (selection.resource_handle != 0u) {
       if (item.resource_handle == selection.resource_handle) {
+        return item;
+      }
+    }
+    if (selection.resource_view_handle != 0u) {
+      if (item.resource_view_handle == selection.resource_view_handle) {
         return item;
       }
     }
@@ -320,6 +334,13 @@ void RemoveSelection(SettingSelection& selection) {
         return;
       }
     }
+    if (selection.resource_view_handle != 0u) {
+      if (iterator->resource_view_handle == selection.resource_view_handle) {
+        setting_open_tabs.erase(iterator);
+        return;
+      }
+    }
+
     ++iterator;
   }
 }
@@ -367,14 +388,15 @@ void OnInitPipelineLayout(
   data.pipeline_layout_params[layout.handle] = cloned_params;
 }
 
+bool has_fired_on_init_pipeline_track_addons = false;
 void OnInitPipelineTrackAddons(
     reshade::api::device* device,
     reshade::api::pipeline_layout layout,
     uint32_t subobject_count,
     const reshade::api::pipeline_subobject* subobjects,
     reshade::api::pipeline pipeline) {
-  // Unregister (fire-once callback)
-  reshade::unregister_event<reshade::addon_event::init_pipeline>(OnInitPipelineTrackAddons);
+  if (has_fired_on_init_pipeline_track_addons) return;
+  has_fired_on_init_pipeline_track_addons = true;
 
   auto& data = device->get_private_data<DeviceData>();
   auto& shader_device_data = renodx::utils::shader::GetShaderDeviceData(device);
@@ -506,7 +528,6 @@ void OnBindDescriptorTables(
     uint32_t count,
     const reshade::api::descriptor_table* tables) {
   if (!is_snapshotting) return;
-  reshade::log::message(reshade::log::level::debug, "start");
   auto& data = cmd_list->get_private_data<CommandListData>();
   auto& details = data.GetCurrentDrawDetails();
 
@@ -686,6 +707,23 @@ bool OnDrawOrDispatchIndirect(
   return OnDraw(cmd_list, DrawDetails::DrawMethods::DRAW_INDEXED_OR_INDIRECT);
 }
 
+void OnInitResource(
+    reshade::api::device* device,
+    const reshade::api::resource_desc& desc,
+    const reshade::api::subresource_data* initial_data,
+    reshade::api::resource_usage initial_state,
+    reshade::api::resource resource) {
+  auto& data = device->get_private_data<DeviceData>();
+  const std::unique_lock lock(data.mutex);
+  data.live_resource_handles.emplace(resource.handle);
+}
+
+void OnDestroyResource(reshade::api::device* device, reshade::api::resource resource) {
+  auto& data = device->get_private_data<DeviceData>();
+  const std::unique_lock lock(data.mutex);
+  data.live_resource_handles.erase(resource.handle);
+}
+
 void OnInitResourceView(
     reshade::api::device* device,
     reshade::api::resource resource,
@@ -694,6 +732,7 @@ void OnInitResourceView(
     reshade::api::resource_view view) {
   auto& data = device->get_private_data<DeviceData>();
   const std::unique_lock lock(data.mutex);
+  data.live_resource_view_handles.emplace(view.handle);
   data.resource_view_details.erase(view.handle);
   ResourceViewDetails details = {
       .resource_view = view,
@@ -718,6 +757,7 @@ void OnDestroyResourceView(reshade::api::device* device, reshade::api::resource_
   auto& data = device->get_private_data<DeviceData>();
   const std::unique_lock lock(data.mutex);
   data.resource_view_details.erase(view.handle);
+  data.live_resource_view_handles.erase(view.handle);
 }
 
 void DeactivateShader(reshade::api::device* device, uint32_t shader_hash) {
@@ -851,9 +891,8 @@ void RenderNavRail(reshade::api::device* device, DeviceData& data) {
 
       ImGui::SetItemTooltip("%s", SETTING_NAV_TITLES[i].first);
     }
-
-    ImGui::EndChild();
   }
+  ImGui::EndChild();
 }
 
 void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
@@ -865,10 +904,10 @@ void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
               | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_ScrollY,
           ImVec2(-4, -4))) {
     ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 24.0f);
-    ImGui::TableSetupColumn("Ref", ImGuiTableColumnFlags_None, 16.0f);
-    ImGui::TableSetupColumn("Info", ImGuiTableColumnFlags_None, 24.0f);
-    ImGui::TableSetupColumn("Reflection", ImGuiTableColumnFlags_None, 24.0f);
-    ImGui::TableSetupColumn("Draw", ImGuiTableColumnFlags_None, 4.0f);
+    ImGui::TableSetupColumn("Ref", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 16.0f);
+    ImGui::TableSetupColumn("Info", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 24.0f);
+    ImGui::TableSetupColumn("Reflection", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 24.0f);
+    ImGui::TableSetupColumn("Draw", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 4.0f);
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableHeadersRow();
 
@@ -924,9 +963,15 @@ void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
               ImGui::PushID(row_index);
               if (shader_hash != 0u && !shader_details.program_version.has_value()) {
                 if (shader_details.shader_data.empty()) {
-                  auto shader_data = pipeline_details.GetShaderData(shader_hash);
-                  if (!shader_data.has_value()) throw std::exception("Failed to get shader data");
-                  shader_details.shader_data = shader_data.value();
+                  try {
+                    auto shader_data = pipeline_details.GetShaderData(shader_hash);
+                    if (!shader_data.has_value()) {
+                      throw std::exception("Failed to get shader data");
+                    }
+                    shader_details.shader_data = shader_data.value();
+                  } catch (const std::exception& e) {
+                    reshade::log::message(reshade::log::level::error, e.what());
+                  }
                 }
                 if (renodx::utils::device::IsDirectX(device)) {
                   try {
@@ -974,13 +1019,13 @@ void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
 
         for (auto& [slot, resource_view_details] : draw_details.srv_binds) {
           ++row_index;
-          bool rtv_node_open = false;
+          bool srv_node_open = false;
           if (draw_node_open) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::PushID(row_index);
 
-            rtv_node_open = ImGui::TreeNodeEx(
+            srv_node_open = ImGui::TreeNodeEx(
                 "",
                 tree_node_flags | ImGuiTreeNodeFlags_DefaultOpen,
                 (slot.second == 0) ? "SRV%d" : "SRV%d,space%d", slot.first, slot.second);
@@ -1012,8 +1057,11 @@ void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
             ImGui::Text("%03d", draw_index);
           }
           ++row_index;
-          if (rtv_node_open) {
-            SettingSelection search = {.resource_handle = resource_view_details.resource.handle};
+          if (srv_node_open) {
+            SettingSelection search = {
+                .resource_handle = resource_view_details.resource.handle,
+                .resource_view_handle = resource_view_details.resource_view.handle,
+            };
             auto& selection = GetSelection(search);
 
             ImGui::TableNextRow();
@@ -1060,13 +1108,13 @@ void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
 
         for (auto& [slot, resource_view_details] : draw_details.uav_binds) {
           ++row_index;
-          bool rtv_node_open = false;
+          bool uav_node_open = false;
           if (draw_node_open) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::PushID(row_index);
 
-            rtv_node_open = ImGui::TreeNodeEx(
+            uav_node_open = ImGui::TreeNodeEx(
                 "",
                 tree_node_flags | ImGuiTreeNodeFlags_DefaultOpen,
                 (slot.second == 0) ? "UAV%d" : "UAV%d,space%d", slot.first, slot.second);
@@ -1098,7 +1146,7 @@ void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
             ImGui::Text("%03d", draw_index);
           }
           ++row_index;
-          if (rtv_node_open) {
+          if (uav_node_open) {
             SettingSelection search = {.resource_handle = resource_view_details.resource.handle};
             auto& selection = GetSelection(search);
 
@@ -1689,8 +1737,67 @@ void RenderShaderView(reshade::api::device* device, DeviceData& data, SettingSel
         default:
           break;
       }
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
+    ImGui::EndTabItem();
+  }
+}
+
+// Returns false selection is to be removed
+void RenderResourceViewView(reshade::api::device* device, DeviceData& data, SettingSelection& selection) {
+  ImGui::PushID(std::format("##resource_view_view_tab_0x{:08x}", selection.resource_view_handle).c_str());
+  auto style = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+  if (!selection.is_pinned) {
+    style.w *= 0.5f;
+  } else if (selection.is_current) {
+  }
+  ImGui::PushStyleColor(ImGuiCol_Text, style);
+  bool open = ImGui::BeginTabItem(
+      std::format("0x{:08x}", selection.resource_handle).c_str(),
+      &selection.is_alive,
+      selection.GetTabItemFlags());
+
+  ImGui::PopStyleColor();
+  ImGui::PopID();
+
+  if (ImGui::IsItemClicked()) {
+    MakeSelectionCurrent(selection);
+  }
+  if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+    selection.is_pinned = true;
+  }
+
+  if (open) {
+    if (ImGui::BeginChild(
+            std::format("##resource_view_tab_child_0x{:08x}", selection.resource_handle).c_str(),
+            ImVec2(0, 0))) {
+      if (data.live_resource_view_handles.contains(selection.resource_view_handle)) {
+        auto resource_view_details = data.GetResourceViewDetails({selection.resource_view_handle}, device);
+
+        if (data.live_resource_handles.contains(resource_view_details.resource.handle)) {
+          auto available_size = ImGui::GetContentRegionAvail();
+          auto output_size = ImVec2(
+              resource_view_details.resource_desc.texture.width,
+              resource_view_details.resource_desc.texture.height);
+          auto x_overage = output_size.x - available_size.x;
+          auto y_overage = output_size.y - available_size.y;
+          auto scale = 1.f;
+          if (x_overage > y_overage) {
+            if (x_overage > 0) {
+              scale = available_size.x / output_size.x;
+            }
+          } else if (y_overage > 0) {
+            scale = available_size.y / output_size.y;
+          }
+
+          output_size.x *= scale;
+          output_size.y *= scale;
+
+          ImGui::Image(selection.resource_view_handle, output_size, ImVec2(0, 0), ImVec2(1, 1), ImColor(1.0f, 1.0f, 1.0f), ImColor(0.0f, 0.0f, 0.0f, 0.0f));
+        }
+      }
+    }
+    ImGui::EndChild();
     ImGui::EndTabItem();
   }
 }
@@ -1747,8 +1854,8 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
         default:
           break;
       }
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
 
     ImGui::SameLine();
 
@@ -1759,14 +1866,16 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
           for (auto& selection : setting_open_tabs) {
             if (selection.shader_hash != 0u) {
               RenderShaderView(device, data, selection);
+            } else if (selection.resource_view_handle != 0u) {
+              RenderResourceViewView(device, data, selection);
             }
           }
           RemoveDeadSelections();
           ImGui::EndTabBar();
         }
       }
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
     ImGui::SameLine();
     if (ImGui::BeginChild("##SideSheet", {0, 0}, ImGuiChildFlags_AutoResizeX)) {
       auto selection = GetCurrentSelection();
@@ -1779,8 +1888,8 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
       }
 
       setting_side_sheet_width = 96;
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
   }
   ImGui::EndChild();
 }
@@ -1851,6 +1960,8 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       reshade::register_event<reshade::addon_event::draw_or_dispatch_indirect>(OnDrawOrDispatchIndirect);
       reshade::register_event<reshade::addon_event::dispatch>(OnDispatch);
       reshade::register_event<reshade::addon_event::present>(OnPresent);
+      reshade::register_event<reshade::addon_event::init_resource>(OnInitResource);
+      reshade::register_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
       reshade::register_event<reshade::addon_event::init_resource_view>(OnInitResourceView);
       reshade::register_event<reshade::addon_event::destroy_resource_view>(OnDestroyResourceView);
 
@@ -1878,6 +1989,8 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       reshade::unregister_event<reshade::addon_event::draw_or_dispatch_indirect>(OnDrawOrDispatchIndirect);
       reshade::unregister_event<reshade::addon_event::dispatch>(OnDispatch);
       reshade::unregister_event<reshade::addon_event::present>(OnPresent);
+      reshade::unregister_event<reshade::addon_event::init_resource>(OnInitResource);
+      reshade::unregister_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
       reshade::unregister_event<reshade::addon_event::init_resource_view>(OnInitResourceView);
       reshade::unregister_event<reshade::addon_event::destroy_resource_view>(OnDestroyResourceView);
 
