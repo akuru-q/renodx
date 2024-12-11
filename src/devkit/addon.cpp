@@ -192,17 +192,16 @@ struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
         pair != resource_view_details.end()) {
       details = pair->second;
       auto device_api = device->get_api();
-      if (device_api == reshade::api::device_api::d3d11) {
-        auto resource_view_tag = renodx::utils::trace::GetDebugName(device_api, resource_view);
-        if (resource_view_tag.has_value()) {
-          details.resource_view_tag = resource_view_tag.value();
-        }
 
-        if (details.resource_desc.type != reshade::api::resource_type::unknown) {
-          auto resource_tag = renodx::utils::trace::GetDebugName(device_api, details.resource);
-          if (resource_tag.has_value()) {
-            details.resource_tag = resource_tag.value();
-          }
+      auto resource_view_tag = renodx::utils::trace::GetDebugName(device_api, resource_view);
+      if (resource_view_tag.has_value()) {
+        details.resource_view_tag = resource_view_tag.value();
+      }
+
+      if (details.resource_desc.type != reshade::api::resource_type::unknown) {
+        auto resource_tag = renodx::utils::trace::GetDebugName(device_api, details.resource);
+        if (resource_tag.has_value()) {
+          details.resource_tag = resource_tag.value();
         }
       }
 
@@ -389,14 +388,15 @@ void OnInitPipelineLayout(
   data.pipeline_layout_params[layout.handle] = cloned_params;
 }
 
+bool has_fired_on_init_pipeline_track_addons = false;
 void OnInitPipelineTrackAddons(
     reshade::api::device* device,
     reshade::api::pipeline_layout layout,
     uint32_t subobject_count,
     const reshade::api::pipeline_subobject* subobjects,
     reshade::api::pipeline pipeline) {
-  // Unregister (fire-once callback)
-  reshade::unregister_event<reshade::addon_event::init_pipeline>(OnInitPipelineTrackAddons);
+  if (has_fired_on_init_pipeline_track_addons) return;
+  has_fired_on_init_pipeline_track_addons = true;
 
   auto& data = device->get_private_data<DeviceData>();
   auto& shader_device_data = renodx::utils::shader::GetShaderDeviceData(device);
@@ -528,7 +528,6 @@ void OnBindDescriptorTables(
     uint32_t count,
     const reshade::api::descriptor_table* tables) {
   if (!is_snapshotting) return;
-  reshade::log::message(reshade::log::level::debug, "start");
   auto& data = cmd_list->get_private_data<CommandListData>();
   auto& details = data.GetCurrentDrawDetails();
 
@@ -892,9 +891,8 @@ void RenderNavRail(reshade::api::device* device, DeviceData& data) {
 
       ImGui::SetItemTooltip("%s", SETTING_NAV_TITLES[i].first);
     }
-
-    ImGui::EndChild();
   }
+  ImGui::EndChild();
 }
 
 void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
@@ -906,10 +904,10 @@ void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
               | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_ScrollY,
           ImVec2(-4, -4))) {
     ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 24.0f);
-    ImGui::TableSetupColumn("Ref", ImGuiTableColumnFlags_None, 16.0f);
-    ImGui::TableSetupColumn("Info", ImGuiTableColumnFlags_None, 24.0f);
-    ImGui::TableSetupColumn("Reflection", ImGuiTableColumnFlags_None, 24.0f);
-    ImGui::TableSetupColumn("Draw", ImGuiTableColumnFlags_None, 4.0f);
+    ImGui::TableSetupColumn("Ref", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 16.0f);
+    ImGui::TableSetupColumn("Info", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 24.0f);
+    ImGui::TableSetupColumn("Reflection", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 24.0f);
+    ImGui::TableSetupColumn("Draw", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 4.0f);
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableHeadersRow();
 
@@ -965,9 +963,15 @@ void RenderCapturePane(reshade::api::device* device, DeviceData& data) {
               ImGui::PushID(row_index);
               if (shader_hash != 0u && !shader_details.program_version.has_value()) {
                 if (shader_details.shader_data.empty()) {
-                  auto shader_data = pipeline_details.GetShaderData(shader_hash);
-                  if (!shader_data.has_value()) throw std::exception("Failed to get shader data");
-                  shader_details.shader_data = shader_data.value();
+                  try {
+                    auto shader_data = pipeline_details.GetShaderData(shader_hash);
+                    if (!shader_data.has_value()) {
+                      throw std::exception("Failed to get shader data");
+                    }
+                    shader_details.shader_data = shader_data.value();
+                  } catch (const std::exception& e) {
+                    reshade::log::message(reshade::log::level::error, e.what());
+                  }
                 }
                 if (renodx::utils::device::IsDirectX(device)) {
                   try {
@@ -1733,8 +1737,8 @@ void RenderShaderView(reshade::api::device* device, DeviceData& data, SettingSel
         default:
           break;
       }
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
     ImGui::EndTabItem();
   }
 }
@@ -1792,9 +1796,8 @@ void RenderResourceViewView(reshade::api::device* device, DeviceData& data, Sett
           ImGui::Image(selection.resource_view_handle, output_size, ImVec2(0, 0), ImVec2(1, 1), ImColor(1.0f, 1.0f, 1.0f), ImColor(0.0f, 0.0f, 0.0f, 0.0f));
         }
       }
-
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
     ImGui::EndTabItem();
   }
 }
@@ -1851,8 +1854,8 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
         default:
           break;
       }
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
 
     ImGui::SameLine();
 
@@ -1871,8 +1874,8 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
           ImGui::EndTabBar();
         }
       }
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
     ImGui::SameLine();
     if (ImGui::BeginChild("##SideSheet", {0, 0}, ImGuiChildFlags_AutoResizeX)) {
       auto selection = GetCurrentSelection();
@@ -1885,8 +1888,8 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
       }
 
       setting_side_sheet_width = 96;
-      ImGui::EndChild();
     }
+    ImGui::EndChild();
   }
   ImGui::EndChild();
 }
