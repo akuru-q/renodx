@@ -19,14 +19,11 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
-    CustomShaderEntry(0x04FDEDF9),
-    CustomShaderEntry(0xB8F57CD5),
-    CustomShaderEntry(0x4DC74060),
-    CustomShaderEntry(0xA3657554),
-    CustomShaderEntry(0x2BBD74AD),
-    CustomShaderEntry(0xC605FBD5),
-    CustomShaderEntry(0x90C53F9F),
-    CustomShaderEntry(0x77AB75A9),
+    CustomSwapchainShader(0xAC791084),
+    CustomShaderEntry(0xC1BCC6B5),
+    CustomShaderEntry(0x61C2EA30),
+    CustomShaderEntry(0xE6EB2840),
+    CustomShaderEntry(0xBBA0606A),
 };
 
 ShaderInjectData shader_injection;
@@ -155,20 +152,21 @@ renodx::utils::settings::Settings settings = {
         .parse = [](float value) { return value * 0.02f; },
     },
     new renodx::utils::settings::Setting{
-        .key = "colorGradeBlowout",
+        .key = "ColorGradeBlowout",
         .binding = &shader_injection.colorGradeBlowout,
         .default_value = 50.f,
         .label = "Blowout",
         .section = "Color Grading",
         .tooltip = "Controls highlight desaturation due to overexposure.",
         .max = 100.f,
-        .parse = [](float value) { return value * 0.01f; },
+        .is_enabled = []() { return shader_injection.toneMapType == 3; },
+        .parse = [](float value) { return value * 0.02f - 1.f; },
     },
     new renodx::utils::settings::Setting{
         .key = "colorGradeColorSpace",
         .binding = &shader_injection.colorGradeColorSpace,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,
-        .default_value = 1.f,
+        .default_value = 0.f,
         .label = "Color Space",
         .section = "Color Grading",
         .tooltip = "Selects output color space"
@@ -239,7 +237,7 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain) {
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
-extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Final Fantasy X";
+extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Crisis Core - Final Fantasy VII Reunion";
 
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
@@ -257,8 +255,29 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       };
 
       renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::r8g8b8a8_typeless,
+          .new_format = reshade::api::format::r16g16b16a16_typeless,
+      });
+
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
           .old_format = reshade::api::format::r8g8b8a8_unorm,
           .new_format = reshade::api::format::r16g16b16a16_float,
+      });
+
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::b8g8r8a8_unorm,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+      });
+
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::b8g8r8a8_typeless,
+          .new_format = reshade::api::format::r16g16b16a16_typeless,
+      });
+
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::r10g10b10a2_unorm,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+          .dimensions = {.width = 32, .height = 32, .depth = 32},
       });
 
       reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
