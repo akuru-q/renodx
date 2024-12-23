@@ -19,11 +19,11 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
-    CustomSwapchainShader(0xAC791084),
-    CustomShaderEntry(0xC1BCC6B5),
-    CustomShaderEntry(0x61C2EA30),
-    CustomShaderEntry(0xE6EB2840),
-    CustomShaderEntry(0xBBA0606A),
+    CustomSwapchainShader(0xAC791084),  // fmv
+    CustomShaderEntry(0x61C2EA30),      // lutbuilder
+    CustomShaderEntry(0xC1BCC6B5),      // lutbuilder
+    CustomShaderEntry(0xE6EB2840),      // lutbuilder
+    CustomShaderEntry(0xD4A45A02),      // lutbuilder
 };
 
 ShaderInjectData shader_injection;
@@ -33,12 +33,12 @@ renodx::utils::settings::Settings settings = {
         .key = "toneMapType",
         .binding = &shader_injection.toneMapType,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,
-        .default_value = 3.f,
+        .default_value = 1.f,
         .can_reset = false,
         .label = "Tone Mapper",
         .section = "Tone Mapping",
         .tooltip = "Sets the tone mapper type",
-        .labels = {"Vanilla", "None", "ACES", "RenoDRT"},
+        .labels = {"Vanilla", "RenoDRT"},
     },
     new renodx::utils::settings::Setting{
         .key = "toneMapPeakNits",
@@ -85,26 +85,26 @@ renodx::utils::settings::Settings settings = {
         .labels = {"Off", "LCD", "CRT"},
     },
     new renodx::utils::settings::Setting{
-        .key = "toneMapHueCorrectionMethod",
-        .binding = &shader_injection.toneMapHueCorrectionMethod,
+        .key = "ToneMapHueProcessor",
+        .binding = &shader_injection.toneMapHueProcessor,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,
-        .default_value = 3.f,
-        .label = "Hue Correction Method",
+        .default_value = 0.f,
+        .label = "Hue Processor",
         .section = "Tone Mapping",
-        .tooltip = "Applies hue shift emulation before tonemapping",
-        .labels = {"None", "SDR Clip", "Filmic", "RenoDRT"},
+        .tooltip = "Selects hue processor",
+        .labels = {"OKLab", "ICtCp", "darkTable UCS"},
+        .is_enabled = []() { return shader_injection.toneMapType == 1; },
     },
     new renodx::utils::settings::Setting{
-        .key = "toneMapHueCorrection",
-        .binding = &shader_injection.toneMapHueCorrection,
-        .default_value = 100.f,
-        .label = "Hue Correction",
+        .key = "ToneMapPerChannel",
+        .binding = &shader_injection.toneMapPerChannel,
+        .value_type = renodx::utils::settings::SettingValueType::INTEGER,
+        .default_value = 1.f,
+        .label = "Per Channel",
         .section = "Tone Mapping",
-        .tooltip = "Emulates Vanilla hue shifts.",
-        .min = 0.f,
-        .max = 100.f,
-        .is_enabled = []() { return shader_injection.toneMapHueCorrectionMethod != 0; },
-        .parse = [](float value) { return value * 0.01f; },
+        .tooltip = "Applies tonemapping per-channel instead of by luminance",
+        .labels = {"Off", "On"},
+        .is_enabled = []() { return shader_injection.toneMapType == 1; },
     },
     new renodx::utils::settings::Setting{
         .key = "colorGradeExposure",
@@ -112,7 +112,7 @@ renodx::utils::settings::Settings settings = {
         .default_value = 1.f,
         .label = "Exposure",
         .section = "Color Grading",
-        .max = 10.f,
+        .max = 2.f,
         .format = "%.2f",
     },
     new renodx::utils::settings::Setting{
@@ -159,8 +159,19 @@ renodx::utils::settings::Settings settings = {
         .section = "Color Grading",
         .tooltip = "Controls highlight desaturation due to overexposure.",
         .max = 100.f,
-        .is_enabled = []() { return shader_injection.toneMapType == 3; },
+        .is_enabled = []() { return shader_injection.toneMapType == 1; },
         .parse = [](float value) { return value * 0.02f - 1.f; },
+    },
+    new renodx::utils::settings::Setting{
+        .key = "ColorGradeFlare",
+        .binding = &shader_injection.colorGradeFlare,
+        .default_value = 0.f,
+        .label = "Flare",
+        .section = "Color Grading",
+        .tooltip = "Flare/Glare",
+        .max = 100.f,
+        .is_enabled = []() { return shader_injection.toneMapType == 1; },
+        .parse = [](float value) { return value * 0.02f; },
     },
     new renodx::utils::settings::Setting{
         .key = "colorGradeColorSpace",
@@ -181,7 +192,6 @@ renodx::utils::settings::Settings settings = {
             "US CRT",
             "JPN CRT",
         },
-
     },
     new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::BUTTON,
@@ -237,7 +247,7 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain) {
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
-extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Crisis Core - Final Fantasy VII Reunion";
+extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Unreal Engine (DirectX 11)";
 
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
