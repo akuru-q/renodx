@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <sstream>
@@ -715,8 +716,8 @@ static void SetupSwapchainProxy(
 
 static void OnInitSwapchain(reshade::api::swapchain* swapchain) {
   auto* device = swapchain->get_device();
-  if (device == nullptr) return;
   auto& data = device->get_private_data<DeviceData>();
+  if (std::addressof(data) == nullptr) return;
   const std::unique_lock lock(data.mutex);
 
   reshade::log::message(reshade::log::level::debug, "mods::swapchain::OnInitSwapchain(reset resource upgrade)");
@@ -751,6 +752,7 @@ static void OnInitSwapchain(reshade::api::swapchain* swapchain) {
 static void OnDestroySwapchain(reshade::api::swapchain* swapchain) {
   auto* device = swapchain->get_device();
   auto& data = device->get_private_data<DeviceData>();
+  if (std::addressof(data) == nullptr) return;
 
   const size_t back_buffer_count = swapchain->get_back_buffer_count();
   for (uint32_t index = 0; index < back_buffer_count; ++index) {
@@ -942,6 +944,8 @@ static void OnInitResource(
     return;
   }
 
+  if (initial_data != nullptr) return;
+
   auto& private_data = device->get_private_data<DeviceData>();
   const std::unique_lock lock(private_data.mutex);
 
@@ -1097,6 +1101,7 @@ static void OnDestroyResource(reshade::api::device* device, reshade::api::resour
   }
 
   if (use_resource_cloning) {
+    data.resource_clone_enabled.erase(resource.handle);
     data.resource_clone_targets.erase(resource.handle);
     if (
         auto pair = data.resource_clones.find(resource.handle);
@@ -1527,7 +1532,7 @@ static bool ActivateCloneHotSwap(
 
   clone_resource = reshade::api::resource{cloned_resource_pair->second};
 
-  if (data.resource_clone_enabled.contains(clone_resource.handle)) {
+  if (data.resource_clone_enabled.contains(resource.handle)) {
     // Already activated
     return false;
   }
@@ -1545,7 +1550,7 @@ static bool ActivateCloneHotSwap(
 
 #endif
 
-  data.resource_clone_enabled.insert(clone_resource.handle);
+  data.resource_clone_enabled.insert(resource.handle);
   return true;
 }
 
