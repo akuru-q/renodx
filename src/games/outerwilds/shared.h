@@ -1,5 +1,5 @@
-#ifndef SRC_BATMAN_ARKHAMKNIGHT_SHARED_H_
-#define SRC_BATMAN_ARKHAMKNIGHT_SHARED_H_
+#ifndef SRC_OUTER_WILDS_SHARED_H_
+#define SRC_OUTER_WILDS_SHARED_H_
 
 #ifndef __cplusplus
 #include "../../shaders/renodx.hlsl"
@@ -12,9 +12,6 @@ struct ShaderInjectData {
   float toneMapPeakNits;
   float toneMapGameNits;
   float toneMapUINits;
-  float toneMapGammaCorrection;
-  float toneMapHueCorrection;
-  float toneMapBlend;
   float colorGradeExposure;
   float colorGradeHighlights;
   float colorGradeShadows;
@@ -22,12 +19,6 @@ struct ShaderInjectData {
   float colorGradeSaturation;
   float colorGradeBlowout;
   float colorGradeFlare;
-  float colorGradeLUTStrength;
-  float fxBloom;
-  float fxLensFlare;
-  float fxVignette;
-  float fxFilmGrainType;
-  float fxFilmGrain;
 };
 
 #ifndef __cplusplus
@@ -36,4 +27,4 @@ cbuffer cb13 : register(b13) {
 }
 #endif
 
-#endif  // SRC_BATMAN_ARKHAMKNIGHT_SHARED_H_
+#endif  // SRC_OUTER_WILDS_SHARED_H_
