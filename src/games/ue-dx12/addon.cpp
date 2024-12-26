@@ -21,8 +21,6 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
-    CustomSwapchainShader(0xAC791084),  // fmv
-    // CustomShaderEntry(0x4CC68F73),  SM6
     CustomShaderEntry(0x5CAE0013),
     CustomShaderEntry(0x61C2EA30),
     CustomShaderEntry(0x73B2BA54),
@@ -289,16 +287,82 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain) {
   }
 }
 
+void AddPsychonauts2Patches() {
+  renodx::mods::swapchain::force_borderless = false;
+  renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      .old_format = reshade::api::format::r10g10b10a2_unorm,
+      .new_format = reshade::api::format::r16g16b16a16_float,
+      .ignore_size = true,
+      .usage_include = reshade::api::resource_usage::render_target,
+  });
+  renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      .old_format = reshade::api::format::r11g11b10_float,
+      .new_format = reshade::api::format::r16g16b16a16_float,
+      .ignore_size = true,
+      .usage_include = reshade::api::resource_usage::render_target,
+  });
+}
+
+void AddHifiRushPatches() {
+  // for (auto index : {1}) {
+  //   renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+  //       .old_format = reshade::api::format::b8g8r8a8_typeless,
+  //       .new_format = reshade::api::format::b8g8r8a8_typeless,
+  //       .index = index,
+  //       .view_upgrades = {},
+  //       .usage_include = reshade::api::resource_usage::render_target,
+  //   });
+  // }
+  // renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+  //     .old_format = reshade::api::format::b8g8r8a8_typeless,
+  //     .new_format = reshade::api::format::r16g16b16a16_typeless,
+  //     .usage_include = reshade::api::resource_usage::render_target,
+  // });
+}
+
+void AddGamePatches() {
+  try {
+    auto process_path = renodx::utils::platform::GetCurrentProcessPath();
+    auto filename = process_path.filename().string();
+    if (filename == "Psychonauts2-WinGDK-Shipping.exe") {
+      AddPsychonauts2Patches();
+    } else if (filename == "Hi-Fi-RUSH.exe") {
+      AddHifiRushPatches();
+    } else if (filename == "TheThaumaturge-Win64-Shipping.exe") {
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::r10g10b10a2_unorm,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+          .usage_include = reshade::api::resource_usage::render_target,
+      });
+    } else {
+      return;
+    }
+    reshade::log::message(reshade::log::level::info, std::format("Applied patches for {}.", filename).c_str());
+  } catch (...) {
+    reshade::log::message(reshade::log::level::error, "Could not read process path");
+  }
+}
+
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
-extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Unreal Engine (DirectX 11)";
+extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Unreal Engine (DirectX 12)";
 
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
     case DLL_PROCESS_ATTACH:
       if (!reshade::register_addon(h_module)) return FALSE;
 
+      renodx::mods::shader::on_init_pipeline_layout = [](reshade::api::device* device, auto, auto) {
+        return device->get_api() == reshade::api::device_api::d3d12;
+      };
+
+      renodx::mods::shader::expected_constant_buffer_space = 50;
+      renodx::mods::shader::expected_constant_buffer_index = 13;
+      renodx::mods::shader::allow_multiple_push_constants = true;
+
+      renodx::mods::swapchain::expected_constant_buffer_space = 50;
+      renodx::mods::swapchain::expected_constant_buffer_index = 13;
       renodx::mods::swapchain::use_resource_cloning = true;
       renodx::mods::swapchain::swap_chain_proxy_vertex_shader = {
           _swap_chain_proxy_vertex_shader,
@@ -314,6 +378,8 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
           .new_format = reshade::api::format::r16g16b16a16_float,
           .dimensions = {.width = 32, .height = 32, .depth = 32},
       });
+
+      AddGamePatches();
 
       reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
 
