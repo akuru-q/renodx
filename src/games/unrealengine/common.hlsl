@@ -15,6 +15,7 @@ float3 PostToneMapScale(float3 color) {
     color *= injectedData.toneMapGameNits / injectedData.toneMapUINits;
     color = renodx::color::srgb::EncodeSafe(color);
   }
+
   return color;
 }
 
@@ -83,9 +84,17 @@ float3 FinalizeOutput(float3 color) {
   color *= injectedData.toneMapUINits;
   color = min(color, injectedData.toneMapPeakNits);  // Clamp UI or Videos
 
-  color = renodx::color::bt709::clamp::BT2020(color);
+  // Always clamp to BT2020
+  color = renodx::color::bt2020::from::BT709(color);
+  color = max(0, color);
 
-  color /= 80.f;
+  if (injectedData.processingUseSCRGB == 1.f) {
+    color = renodx::color::bt709::from::BT2020(color);
+    color = color / 80.f;
+  } else {
+    color = renodx::color::pq::Encode(color, 1.f);
+  }
+
   return color;
 }
 
@@ -103,9 +112,9 @@ float3 RenoDRTSmoothClamp(float3 untonemapped) {
   renodrt_config.dechroma = 0.f;
   renodrt_config.flare = 0.f;
   renodrt_config.hue_correction_strength = 0.f;
-  renodrt_config.tone_map_method =
-      renodx::tonemap::renodrt::config::tone_map_method::DANIELE;
-  renodrt_config.working_color_space = 2u;
+  renodrt_config.working_color_space = 0u;
+
+  // renodrt_config.tone_map_method = renodx::tonemap::renodrt::config::tone_map_method::REINHARD;
 
   return renodx::tonemap::renodrt::BT709(untonemapped, renodrt_config);
 }
@@ -130,13 +139,18 @@ float3 ToneMap(float3 bt709) {
   config.reno_drt_saturation = 1.05f;
   config.reno_drt_dechroma = 0;
   config.reno_drt_blowout = injectedData.colorGradeBlowout;
-  config.reno_drt_flare = 0.10f * injectedData.colorGradeFlare;
+  config.reno_drt_flare = 0.10f * pow(injectedData.colorGradeFlare, 10.f);
   config.reno_drt_working_color_space = 2u;
   config.reno_drt_per_channel = injectedData.toneMapPerChannel != 0;
 
   config.reno_drt_hue_correction_method = (uint)injectedData.toneMapHueProcessor;
 
   config.hue_correction_strength = injectedData.toneMapHueCorrection;
+  if (injectedData.toneMapHueCorrectionMethod == 1.f) {
+    config.hue_correction_type =
+        renodx::tonemap::config::hue_correction_type::CUSTOM;
+    config.hue_correction_color = RenoDRTSmoothClamp(bt709);
+  }
 
   float3 output_color = renodx::tonemap::config::Apply(bt709, config);
 
