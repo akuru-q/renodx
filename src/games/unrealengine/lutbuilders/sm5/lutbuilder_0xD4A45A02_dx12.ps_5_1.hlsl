@@ -267,8 +267,10 @@ void main(
   r0.xyz = r0.xyz * r0.www;
   r0.xyz = r1.xyz * r1.www + r0.xyz;
   r0.xyz = r2.xyz * r3.yyy + r0.xyz;
-  float3 untonemapped_ap1 = r1.xyz;
 
+  float3 untonemapped_ap1 = r0.xyz;
+
+  // AP1 => BT709
   r1.x = dot(float3(1.70505154, -0.621790707, -0.0832583979), r0.xyz);
   r1.y = dot(float3(-0.130257145, 1.14080286, -0.0105485283), r0.xyz);
   r1.z = dot(float3(-0.0240032747, -0.128968775, 1.15297174), r0.xyz);
@@ -327,10 +329,13 @@ void main(
     r4.x = 2.5 * r3.x;
     r4.x = 1 + -abs(r4.x);
     r4.x = max(0, r4.x);
-    r4.y = cmp(0 < r3.x);
-    r3.x = cmp(r3.x < 0);
-    r3.x = (int)-r4.y + (int)r3.x;
-    r3.x = (int)r3.x;
+
+    // r4.y = cmp(0 < r3.x);
+    // r3.x = cmp(r3.x < 0);
+    // r3.x = (int)-r4.y + (int)r3.x;
+    // r3.x = (int)r3.x;
+    r3.x = sign(r3.x);
+
     r4.x = -r4.x * r4.x + 1;
     r3.x = r3.x * r4.x + 1;
     r3.x = 0.0250000004 * r3.x;
