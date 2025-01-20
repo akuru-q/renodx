@@ -30,6 +30,7 @@
 #include "../utils/mutex.hpp"
 #include "../utils/pipeline.hpp"
 #include "../utils/resource.hpp"
+#include "../utils/state.hpp"
 #include "../utils/swapchain.hpp"
 
 namespace renodx::mods::swapchain {
@@ -56,7 +57,7 @@ struct SwapChainUpgradeTarget {
   bool ignore_reset = false;
 
 #define SwapChainViewUpgrade(usage, source, destination) \
-  { {reshade::api::resource_usage::usage, reshade::api::format::source}, reshade::api::format::destination }
+  {{reshade::api::resource_usage::usage, reshade::api::format::source}, reshade::api::format::destination}
 #define SwapChainViewUpgradeAll(source, destination)               \
   SwapChainViewUpgrade(shader_resource, source, destination),      \
       SwapChainViewUpgrade(unordered_access, source, destination), \
@@ -70,6 +71,8 @@ struct SwapChainUpgradeTarget {
           SwapChainViewUpgradeAll(r10g10b10a2_typeless, r16g16b16a16_typeless),
           SwapChainViewUpgradeAll(r8g8b8a8_typeless, r16g16b16a16_typeless),
           SwapChainViewUpgradeAll(r16g16b16a16_float, r16g16b16a16_float),
+          SwapChainViewUpgradeAll(r16g16b16a16_unorm, r16g16b16a16_float),
+          SwapChainViewUpgradeAll(r16g16b16a16_snorm, r16g16b16a16_float),
           SwapChainViewUpgradeAll(r10g10b10a2_unorm, r16g16b16a16_float),
           SwapChainViewUpgradeAll(b10g10r10a2_unorm, r16g16b16a16_float),
           SwapChainViewUpgradeAll(r8g8b8a8_unorm, r16g16b16a16_float),
@@ -153,7 +156,7 @@ struct SwapChainUpgradeTarget {
         float target_ratio;
         if (this->aspect_ratio == BACK_BUFFER) {
           if (back_buffer_desc.type == reshade::api::resource_type::unknown) return false;
-          target_ratio = back_buffer_desc.texture.width / back_buffer_desc.texture.height;
+          target_ratio = static_cast<float>(back_buffer_desc.texture.width) / static_cast<float>(back_buffer_desc.texture.height);
         } else {
           target_ratio = this->aspect_ratio;
         }
@@ -244,6 +247,7 @@ struct __declspec(uuid("809df2f6-e1c7-4d93-9c6e-fa88dd960b7c")) DeviceData {
   std::vector<std::uint8_t> swap_chain_proxy_pixel_shader;
   int32_t expected_constant_buffer_index = -1;
   uint32_t expected_constant_buffer_space = 0;
+  bool swapchain_proxy_revert_state;
 };
 
 struct __declspec(uuid("0a2b51ad-ef13-4010-81a4-37a4a0f857a6")) CommandListData {
@@ -271,6 +275,7 @@ static bool prevent_full_screen = true;
 static bool force_borderless = true;
 static bool is_vulkan = false;
 static bool swapchain_proxy_compatibility_mode = true;
+static bool swapchain_proxy_revert_state = false;
 static reshade::api::format swap_chain_proxy_format = reshade::api::format::r16g16b16a16_float;
 static std::vector<std::uint8_t> swap_chain_proxy_vertex_shader = {};
 static std::vector<std::uint8_t> swap_chain_proxy_pixel_shader = {};
@@ -748,7 +753,6 @@ static void ReleaseResourceView(
     data.resource_view_clones.erase(pair);
   }
   data.resource_view_clone_targets.erase(view.handle);
-  data.swap_chain_rtvs.erase(view.handle);
 }
 
 static void RewriteRenderTargets(
@@ -829,6 +833,8 @@ static void DrawSwapChainProxy(reshade::api::swapchain* swapchain, reshade::api:
   auto current_back_buffer = swapchain->get_current_back_buffer();
   auto* device = swapchain->get_device();
   auto& data = device->get_private_data<DeviceData>();
+
+  auto previous_state = renodx::utils::state::GetCurrentState(cmd_list);
 
   if (std::addressof(data) == nullptr) return;
 
@@ -934,9 +940,6 @@ static void DrawSwapChainProxy(reshade::api::swapchain* swapchain, reshade::api:
       return;
     }
   }
-  s << ", pipeline: " << reinterpret_cast<void*>(data.swap_chain_proxy_pipeline.handle);
-  cmd_list->bind_pipeline(reshade::api::pipeline_stage::all_graphics, data.swap_chain_proxy_pipeline);
-  size_t param_index = -1;
 
   // cmd_list->barrier(swapchain_clone, reshade::api::resource_usage::general, reshade::api::resource_usage::shader_resource);
 
@@ -975,6 +978,10 @@ static void DrawSwapChainProxy(reshade::api::swapchain* swapchain, reshade::api:
         shader_injection);
   }
 
+  s << ", pipeline: " << reinterpret_cast<void*>(data.swap_chain_proxy_pipeline.handle);
+  cmd_list->bind_pipeline(reshade::api::pipeline_stage::all_graphics, data.swap_chain_proxy_pipeline);
+  size_t param_index = -1;
+
   auto clone_desc = device->get_resource_desc(swapchain_clone);
   const reshade::api::viewport viewport = {
       .x = 0.0f,
@@ -995,12 +1002,11 @@ static void DrawSwapChainProxy(reshade::api::swapchain* swapchain, reshade::api:
   cmd_list->bind_scissor_rects(0, 1, &scissor_rect);
   cmd_list->draw(3, 1, 0, 0);
   cmd_list->end_render_pass();
-  if (data.swap_chain_rtvs.empty()) {
-    // RTV may not actually be new, but reference to previous one
-    device->destroy_resource_view(rtv);
-    data.swap_chain_proxy_rtvs.erase(current_back_buffer.handle);
-  }
   queue->flush_immediate_command_list();
+
+  if (data.swapchain_proxy_revert_state && previous_state.has_value()) {
+    previous_state->Apply(cmd_list);
+  }
 
 #ifdef DEBUG_LEVEL_2
   reshade::log::message(reshade::log::level::debug, s.str().c_str());
@@ -1033,6 +1039,7 @@ static void OnInitDevice(reshade::api::device* device) {
   data.prevent_full_screen = prevent_full_screen;
   data.swap_chain_proxy_vertex_shader = swap_chain_proxy_vertex_shader;
   data.swap_chain_proxy_pixel_shader = swap_chain_proxy_pixel_shader;
+  data.swapchain_proxy_revert_state = swapchain_proxy_revert_state;
   data.expected_constant_buffer_index = expected_constant_buffer_index;
   data.expected_constant_buffer_space = expected_constant_buffer_space;
 
@@ -1511,6 +1518,7 @@ static void OnDestroyResource(reshade::api::device* device, reshade::api::resour
   renodx::utils::resource::RemoveResourceTag(device, resource);
 
   auto& data = device->get_private_data<DeviceData>();
+  if (std::addressof(data) == nullptr) return;
   const std::unique_lock lock(data.mutex);
 #ifdef DEBUG_LEVEL_1
   {
@@ -2575,6 +2583,7 @@ template <typename T = float*>
 static void Use(DWORD fdw_reason, T* new_injections = nullptr) {
   renodx::utils::resource::Use(fdw_reason);
   renodx::utils::swapchain::Use(fdw_reason);
+  renodx::utils::state::Use(fdw_reason);
   if (use_resource_cloning) {
     renodx::utils::descriptor::Use(fdw_reason);
   }

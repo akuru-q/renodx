@@ -27,6 +27,7 @@
 
 #include "./format.hpp"
 #include "./pipeline.hpp"
+#include "./pipeline_layout.hpp"
 
 namespace renodx::utils::shader {
 
@@ -283,8 +284,13 @@ static bool BuildReplacementPipeline(reshade::api::device* device, DeviceData& d
   }
 
   reshade::api::pipeline new_pipeline;
+  auto layout = renodx::utils::pipeline_layout::GetPipelineLayoutClone(device, details.layout);
+  if (layout.handle == 0u) {
+    layout = details.layout;
+  }
+
   const bool built_pipeline_ok = device->create_pipeline(
-      details.layout,
+      layout,
       subobject_count,
       replacement_subobjects,
       &new_pipeline);
@@ -327,7 +333,7 @@ static void UpdateReplacements(
   } else {
     for (const auto& device : devices) {
       auto& compile = internal::device_based_compile_time_replacements[device];
-      auto& runtime = internal::device_based_compile_time_replacements[device];
+      auto& runtime = internal::device_based_initial_runtime_replacements[device];
       update(compile, runtime);
     }
   }
@@ -466,9 +472,9 @@ static void OnInitDevice(reshade::api::device* device) {
 
   std::shared_lock lock(internal::mutex);
   insert_shaders(internal::compile_time_replacements, data->compile_time_replacements, "compile-time");
-  insert_shaders(internal::device_based_compile_time_replacements[device->get_api()], data->compile_time_replacements, "API-based compile-time");
-
   insert_shaders(internal::initial_runtime_replacements, data->runtime_replacements, "runtime");
+
+  insert_shaders(internal::device_based_compile_time_replacements[device->get_api()], data->compile_time_replacements, "API-based compile-time");
   insert_shaders(internal::device_based_initial_runtime_replacements[device->get_api()], data->runtime_replacements, "API-based runtime");
 
   runtime_replacement_count = data->runtime_replacements.size();
@@ -744,6 +750,7 @@ inline DeviceData& GetShaderDeviceData(reshade::api::device* device) {
 static bool attached = false;
 
 static void Use(DWORD fdw_reason) {
+  renodx::utils::pipeline_layout::Use(fdw_reason);
   switch (fdw_reason) {
     case DLL_PROCESS_ATTACH:
       if (attached) return;
