@@ -562,6 +562,12 @@ float4 tonemap(bool isACESMode = false) {
       config.reno_drt_shadows = 1.20f;
       config.reno_drt_contrast = 1.3f;
       config.reno_drt_saturation = 1.20f;
+      config.reno_drt_blowout = -1.f * (injectedData.colorGradeHighlightSaturation - 1.f);
+      if (injectedData.toneMapPerChannel == 1.f) {
+        config.reno_drt_per_channel = true;
+        config.reno_drt_working_color_space = 2u;
+        config.hue_correction_strength = 0;
+      }
       config.reno_drt_dechroma = injectedData.colorGradeBlowout;
       config.reno_drt_flare = 0.005 * injectedData.colorGradeFlare;
       config.reno_drt_hue_correction_method = (uint)injectedData.toneMapHueProcessor;
@@ -574,11 +580,9 @@ float4 tonemap(bool isACESMode = false) {
 
       if (injectedData.toneMapGammaCorrection == 2.f) {
         outputRGB = renodx::color::correct::GammaSafe(outputRGB);
-        outputRGB *= config.game_nits / 100.f;
-        outputRGB = renodx::color::correct::GammaSafe(outputRGB, true);
-      } else {
-        outputRGB *= config.game_nits / 100.f;
       }
+
+      outputRGB *= config.game_nits / 100.f;
     }
 
   } else {
