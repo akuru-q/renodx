@@ -29,42 +29,43 @@ SIGN_FUNCTION_GENERATOR(float4);
 
 #undef SIGN_FUNCTION_GENERATOR
 
-#define POWSAFE_FUNCTION_GENERATOR(struct)   \
-  struct PowSafe(struct x, float exponent) { \
+#define SIGNPOW_FUNCTION_GENERATOR(struct)   \
+  struct SignPow(struct x, float exponent) { \
     return Sign(x) * pow(abs(x), exponent);  \
   }
 
-POWSAFE_FUNCTION_GENERATOR(float);
-POWSAFE_FUNCTION_GENERATOR(float2);
-POWSAFE_FUNCTION_GENERATOR(float3);
-POWSAFE_FUNCTION_GENERATOR(float4);
-#undef POWSAFE_FUNCTION_GENERATOR
+SIGNPOW_FUNCTION_GENERATOR(float);
+SIGNPOW_FUNCTION_GENERATOR(float2);
+SIGNPOW_FUNCTION_GENERATOR(float3);
+SIGNPOW_FUNCTION_GENERATOR(float4);
+#undef SIGNPOW_FUNCTION_GENERATOR
 
-#define SQRTSAFE_FUNCTION_GENERATOR(struct) \
-  struct SqrtSafe(struct x) {               \
+#define SIGNSQRT_FUNCTION_GENERATOR(struct) \
+  struct SignSqrt(struct x) {               \
     return Sign(x) * sqrt(abs(x));          \
   }
 
-SQRTSAFE_FUNCTION_GENERATOR(float);
-SQRTSAFE_FUNCTION_GENERATOR(float2);
-SQRTSAFE_FUNCTION_GENERATOR(float3);
-SQRTSAFE_FUNCTION_GENERATOR(float4);
-#undef SQRTSAFE_FUNCTION_GENERATOR
+SIGNSQRT_FUNCTION_GENERATOR(float);
+SIGNSQRT_FUNCTION_GENERATOR(float2);
+SIGNSQRT_FUNCTION_GENERATOR(float3);
+SIGNSQRT_FUNCTION_GENERATOR(float4);
+#undef SIGNSQRT_FUNCTION_GENERATOR
+
+#define CBRT_FUNCTION_GENERATOR(struct) \
+  struct Cbrt(struct x) {               \
+    return SignPow(x, 1.f / 3.f);       \
+  }
+
+CBRT_FUNCTION_GENERATOR(float);
+CBRT_FUNCTION_GENERATOR(float2);
+CBRT_FUNCTION_GENERATOR(float3);
+CBRT_FUNCTION_GENERATOR(float4);
+#undef CBRT_FUNCTION_GENERATOR
 
 float Average(float3 color) {
   return (color.x + color.y + color.z) / 3.f;
 }
 
-#if __HLSL_VERSION >= 2021
-template <typename T>
-T DivideSafe(T dividend, T divisor) {
-  return select(divisor == 0.f, FLT_MAX * Sign(dividend), dividend / divisor);
-}
-template <typename T>
-T DivideSafe(T dividend, T divisor, T fallback) {
-  return select(divisor == 0.f, fallback, dividend / divisor);
-}
-#else
 float DivideSafe(float dividend, float divisor) {
   return (divisor == 0.f)
              ? FLT_MAX * Sign(dividend)
@@ -98,7 +99,6 @@ float3 DivideSafe(float3 dividend, float3 divisor, float3 fallback) {
                 DivideSafe(dividend.y, divisor.y, fallback.y),
                 DivideSafe(dividend.z, divisor.z, fallback.z));
 }
-#endif
 
 }  // namespace math
 }  // namespace renodx

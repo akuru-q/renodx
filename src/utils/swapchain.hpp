@@ -17,13 +17,14 @@
 #include <include/reshade.hpp>
 
 #include "./device.hpp"
+#include "./format.hpp"
 #include "./platform.hpp"
 #include "./resource.hpp"
 
 namespace renodx::utils::swapchain {
 
 struct __declspec(uuid("4721e307-0cf3-4293-b4a5-40d0a4e62544")) DeviceData {
-  reshade::api::effect_runtime* current_effect_runtime = nullptr;
+  std::unordered_set<reshade::api::effect_runtime*> effect_runtimes;
   reshade::api::color_space current_color_space = reshade::api::color_space::unknown;
 
   std::unordered_set<reshade::api::swapchain*> swapchains;
@@ -110,14 +111,34 @@ static void OnInitEffectRuntime(reshade::api::effect_runtime* runtime) {
   auto& data = device->get_private_data<DeviceData>();
 
   // Runtime may be on a separate device
-  if (std::addressof(data) == nullptr) return;
+  std::stringstream s;
+  if (std::addressof(data) == nullptr) {
+    s << "utils::swapchain::OnInitEffectRuntime(No device data: " << reinterpret_cast<void*>(device);
+    s << ")";
+    reshade::log::message(reshade::log::level::warning, s.str().c_str());
+    return;
+  }
 
-  const std::unique_lock lock(data.mutex);
-  data.current_effect_runtime = runtime;
-  reshade::log::message(reshade::log::level::info, "Effect runtime created.");
-  if (data.current_color_space != reshade::api::color_space::unknown) {
-    runtime->set_color_space(data.current_color_space);
-    reshade::log::message(reshade::log::level::info, "Effect runtime colorspace updated.");
+  reshade::api::color_space color_space;
+  {
+    const std::unique_lock lock(data.mutex);
+    data.effect_runtimes.emplace(runtime);
+    s << "utils::swapchain::OnInitEffectRuntime(Runtime: " << reinterpret_cast<void*>(device);
+    if (!data.effect_runtimes.contains(runtime)) {
+      s << " (new) ";
+    }
+    color_space = data.current_color_space;
+  }
+  if (color_space != reshade::api::color_space::unknown) {
+    runtime->set_color_space(color_space);
+    s << ", colorspace: ";
+    s << color_space;
+    s << ")";
+    reshade::log::message(reshade::log::level::info, s.str().c_str());
+  } else {
+    s << ", colorspace: unknown";
+    s << ")";
+    reshade::log::message(reshade::log::level::warning, s.str().c_str());
   }
 }
 
@@ -130,9 +151,7 @@ static void OnDestroyEffectRuntime(reshade::api::effect_runtime* runtime) {
   if (std::addressof(data) == nullptr) return;
 
   const std::unique_lock lock(data.mutex);
-  if (data.current_effect_runtime == runtime) {
-    data.current_effect_runtime = nullptr;
-  }
+  data.effect_runtimes.erase(runtime);
 }
 
 static void OnInitCommandList(reshade::api::command_list* cmd_list) {
@@ -210,7 +229,7 @@ static bool HasBackBufferRenderTarget(reshade::api::command_list* cmd_list) {
   bool found_swapchain_rtv = false;
   for (const auto& rtv : cmd_list_data.current_render_targets) {
     if (rtv.handle == 0u) continue;
-    const auto& resource = device->get_resource_from_view(rtv);
+    const auto resource = renodx::utils::resource::GetResourceFromView(device, rtv);
     if (resource.handle == 0u) continue;
     if (!device_data.back_buffers.contains(resource.handle)) continue;
     found_swapchain_rtv = true;
@@ -372,6 +391,7 @@ static bool ChangeColorSpace(reshade::api::swapchain* swapchain, reshade::api::c
     swapchain4->Release();
     swapchain4 = nullptr;
     if (!SUCCEEDED(hr)) {
+      reshade::log::message(reshade::log::level::warning, "renodx::utils::swapchain::ChangeColorSpace(Failed to set DirectX color space)");
       return false;
     }
   } else {
@@ -379,14 +399,19 @@ static bool ChangeColorSpace(reshade::api::swapchain* swapchain, reshade::api::c
   }
 
   auto* device = swapchain->get_device();
-  auto& data = device->get_private_data<DeviceData>();
-  std::unique_lock lock(data.mutex);
-  data.current_color_space = color_space;
 
-  if (data.current_effect_runtime != nullptr) {
-    data.current_effect_runtime->set_color_space(data.current_color_space);
-  } else {
-    reshade::log::message(reshade::log::level::warning, "renodx::utils::swapchain::ChangeColorSpace(effectRuntimeNotSet)");
+  std::unordered_set<reshade::api::effect_runtime*> runtimes;
+  auto& data = device->get_private_data<DeviceData>();
+  if (std::addressof(data) != nullptr) {
+    std::unique_lock lock(data.mutex);
+
+    data.current_color_space = color_space;
+    runtimes = data.effect_runtimes;
+  }
+
+  for (auto* runtime : runtimes) {
+    runtime->set_color_space(color_space);
+    reshade::log::message(reshade::log::level::debug, "renodx::utils::swapchain::ChangeColorSpace(Updated runtime)");
   }
 
   return true;

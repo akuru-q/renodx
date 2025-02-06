@@ -18,11 +18,11 @@
 #include <crc32_hash.hpp>
 #include <include/reshade.hpp>
 
+#include "./device.hpp"
 #include "./format.hpp"
 #include "./path.hpp"
 #include "./shader.hpp"
 #include "./shader_compiler_directx.hpp"
-#include "./device.hpp"
 
 namespace renodx::utils::shader::dump {
 
@@ -188,16 +188,19 @@ static bool attached = false;
 
 }  // namespace internal
 
+static std::string default_dump_folder = "dump";
+
 static bool DumpShader(
     uint32_t shader_hash,
     std::span<uint8_t> shader_data,
-    reshade::api::pipeline_subobject_type shader_type = reshade::api::pipeline_subobject_type::unknown) {
+    reshade::api::pipeline_subobject_type shader_type = reshade::api::pipeline_subobject_type::unknown,
+    const std::string& prefix = "") {
   auto dump_path = renodx::utils::path::GetOutputPath();
 
   if (!std::filesystem::exists(dump_path)) {
     std::filesystem::create_directory(dump_path);
   }
-  dump_path /= "dump";
+  dump_path /= default_dump_folder;
   if (!std::filesystem::exists(dump_path)) {
     std::filesystem::create_directory(dump_path);
   }
@@ -205,17 +208,26 @@ static bool DumpShader(
   wchar_t hash_string[11];
   swprintf_s(hash_string, L"0x%08X", shader_hash);
 
-  dump_path /= hash_string;
+  if (prefix.empty()) {
+    dump_path /= hash_string;
+  } else {
+    dump_path /= prefix;
+    dump_path += hash_string;
+  }
+
+  bool is_binary = true;
 
   if (device::IsDirectX(internal::device_api)) {
     renodx::utils::shader::compiler::directx::DxilProgramVersion shader_version;
     try {
+#ifdef DEBUG_LEVEL_1
       std::stringstream s;
       s << "utils::shader::dump(Decoding shader_data: ";
       s << PRINT_CRC32(shader_hash);
       s << ": " << shader_data.size();
       s << ")";
-      reshade::log::message(reshade::log::level::error, s.str().c_str());
+      reshade::log::message(reshade::log::level::debug, s.str().c_str());
+#endif
       shader_version = renodx::utils::shader::compiler::directx::DecodeShaderVersion(shader_data);
     } catch (std::exception& e) {
       std::stringstream s;
@@ -254,6 +266,10 @@ static bool DumpShader(
         dump_path += L".comp";
         break;
     }
+
+    if (internal::device_api == reshade::api::device_api::opengl) {
+      is_binary = false;
+    }
     // Use type
   }
 
@@ -266,7 +282,12 @@ static bool DumpShader(
   s << ")";
   reshade::log::message(reshade::log::level::debug, s.str().c_str());
 
-  renodx::utils::path::WriteBinaryFile(dump_path, shader_data);
+  if (is_binary) {
+    renodx::utils::path::WriteBinaryFile(dump_path, shader_data);
+  } else {
+    // trim null
+    renodx::utils::path::WriteBinaryFile(dump_path, shader_data.subspan(0, shader_data.size() - 1));
+  }
   return true;
 }
 
