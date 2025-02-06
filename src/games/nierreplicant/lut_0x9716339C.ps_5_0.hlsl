@@ -58,8 +58,11 @@ void main(
   r2.x = 0.125 * r2.x;
   r1.zw = r2.xx * r1.zw;
   r2.xyzw = float4(0,0,0,0);
-  r3.xy = float2(0.00999999978,9.80908925e-45);
-  while (true) { // decomp broken
+  
+  //r3.xy = float2(0.00999999978, 9.80908925e-45); // decomp issue
+  r3.xy = float2(0.00999999978, 7);
+
+  while (true) {
     r3.z = cmp((int)r3.y < 1);
     if (r3.z != 0) break;
     r3.z = (int)r3.y;
@@ -72,7 +75,7 @@ void main(
   r1.xyzw = r0.xyzw * float4(0.219999999,0.219999999,0.219999999,0.219999999) + r2.xyzw;
   r1.xyzw = r1.xyzw * float4(1.08695662,1.08695662,1.08695662,1.08695662) + -r0.xyzw;
   
-  //r0.xyzw = blur_fade_alpha * r1.xyzw + r0.xyzw; // causes issues
+  r0.xyzw = blur_fade_alpha * r1.xyzw + r0.xyzw;
   
   r1.x = dot(r0.xyzw, color_matrix._m00_m10_m20_m30);
   r1.y = dot(r0.xyzw, color_matrix._m01_m11_m21_m31);
