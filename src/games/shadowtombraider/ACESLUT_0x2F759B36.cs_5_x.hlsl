@@ -1,3 +1,5 @@
+#include "./common.hlsl"
+
 // ---- Created with 3Dmigoto v1.3.16 on Tue Sep 03 06:54:16 2024
 
 cbuffer GammaBuffer : register(b10) {
@@ -21,7 +23,7 @@ cbuffer GammaBuffer : register(b10) {
     float l;
     float c;
     float b;
-  } gtParams: packoffset(c3);
+  } gtParams : packoffset(c3);
   // clang-format on
 }
 
@@ -46,7 +48,7 @@ void main(uint3 vThreadID: SV_DispatchThreadID) {
 
   // resinfo_indexable(texture3d)(float,float,float,float) r0.xyz, l(0), u0.xyzw
   ACESLut.GetDimensions(uiDest.x, uiDest.y, uiDest.z);  //   tx.GetDimensions(0, uiDest.x, uiDest.y, uiDest.z);
-  r0.xyz = uiDest.xyz;  // rx = uiDest;
+  r0.xyz = uiDest.xyz;                                  // rx = uiDest;
   // state = 0, constZero.eType = 4, returnType = 0, texture.eType = 7, afImmediates[0] = 0.000000
   r1.xyz = (uint3)vThreadID.xyz;
   r0.xyz = float3(-1, -1, -1) + r0.xyz;
@@ -55,122 +57,136 @@ void main(uint3 vThreadID: SV_DispatchThreadID) {
   r0.xyz = r0.xyz * r0.xyz;
   r0.xyz = float3(1000, 1000, 1000) * r0.xyz;
 
-  // BT.709 -> XYZ
-  r1.x = dot(float3(0.412390888, 0.357584298, 0.180480838), r0.xyz);
-  r1.y = dot(float3(0.212639064, 0.715168595, 0.0721923336), r0.xyz);
-  r1.z = dot(float3(0.0193308201, 0.119194724, 0.950532317), r0.xyz);
+  float3 input_color = r0.xyz;
+  float3 ap1_graded_color = renodx::color::ap1::from::BT709(input_color);
 
-  // D65 -> D60
-  // chromatic adaptation method: von Kries
-  // chromatic adaptation transform: Bradford
-  r0.x = dot(float3(1.01303494, 0.00610530004, -0.0149709601), r1.xyz);
-  r0.y = dot(float3(0.00769822998, 0.998164833, -0.0050321999), r1.xyz);
-  r0.z = dot(float3(-0.00284131011, 0.00468514999, 0.924506664), r1.xyz);
+  if (CUSTOM_ACES_LOOK_STRENGTH != 0) {
+    // BT.709 -> XYZ
+    r1.x = dot(float3(0.412390888, 0.357584298, 0.180480838), r0.xyz);
+    r1.y = dot(float3(0.212639064, 0.715168595, 0.0721923336), r0.xyz);
+    r1.z = dot(float3(0.0193308201, 0.119194724, 0.950532317), r0.xyz);
 
-  // XYZ -> AP0
-  r1.y = dot(float2(1.04981101, -9.74799987e-005), r0.xz);
-  r1.z = dot(float3(-0.495902956, 1.37331295, 0.0982400328), r0.xyz);
-  r1.w = dot(float2(3.99999998e-008, 0.991252124), r0.xz);
+    // D65 -> D60
+    // chromatic adaptation method: von Kries
+    // chromatic adaptation transform: Bradford
+    r0.x = dot(float3(1.01303494, 0.00610530004, -0.0149709601), r1.xyz);
+    r0.y = dot(float3(0.00769822998, 0.998164833, -0.0050321999), r1.xyz);
+    r0.z = dot(float3(-0.00284131011, 0.00468514999, 0.924506664), r1.xyz);
 
-  r0.x = min(r1.y, r1.z);
-  r0.x = min(r0.x, r1.w);
-  r0.y = max(r1.y, r1.z);
-  r0.y = max(r0.y, r1.w);
-  r0.xyz = max(float3(1.00000001e-010, 1.00000001e-010, 0.00999999978), r0.xyy);
-  r0.x = r0.y + -r0.x;
-  r0.x = r0.x / r0.z;
-  r0.yzw = r1.wzy + -r1.zyw;
-  r0.yz = r1.wz * r0.yz;
-  r0.y = r0.y + r0.z;
-  r0.y = r1.y * r0.w + r0.y;
-  r0.y = sqrt(r0.y);
-  r0.z = r1.w + r1.z;
-  r0.z = r0.z + r1.y;
-  r0.y = r0.y * 1.75 + r0.z;
-  r0.w = -0.400000006 + r0.x;
-  r1.x = 2.5 * r0.w;
-  r1.x = 1 + -abs(r1.x);
-  r1.x = max(0, r1.x);
-  r2.x = cmp(0 < r0.w);
-  r0.w = cmp(r0.w < 0);
-  r0.w = (int)-r2.x + (int)r0.w;
-  r0.w = (int)r0.w;
-  r1.x = -r1.x * r1.x + 1;
-  r0.w = r0.w * r1.x + 1;
-  r0.zw = float2(0.333333343, 0.0250000004) * r0.yw;
-  r1.x = cmp(0.159999996 >= r0.y);
-  r0.y = cmp(r0.y >= 0.479999989);
-  r0.z = 0.0799999982 / r0.z;
-  r0.z = -0.5 + r0.z;
-  r0.z = r0.w * r0.z;
-  r0.y = r0.y ? 0 : r0.z;
-  r0.y = r1.x ? r0.w : r0.y;
-  r0.y = 1 + r0.y;
-  r2.yzw = r1.yzw * r0.yyy;
-  r0.zw = cmp(r2.zw == r2.yz);
-  r0.z = r0.w ? r0.z : 0;
-  r0.w = r1.z * r0.y + -r2.w;
-  r0.w = 1.73205078 * r0.w;
-  r1.x = r2.y * 2 + -r2.z;
-  r1.x = -r1.w * r0.y + r1.x;
-  r1.z = min(abs(r1.x), abs(r0.w));
-  r1.w = max(abs(r1.x), abs(r0.w));
-  r1.w = 1 / r1.w;
-  r1.z = r1.z * r1.w;
-  r1.w = r1.z * r1.z;
-  r3.x = r1.w * 0.0208350997 + -0.0851330012;
-  r3.x = r1.w * r3.x + 0.180141002;
-  r3.x = r1.w * r3.x + -0.330299497;
-  r1.w = r1.w * r3.x + 0.999866009;
-  r3.x = r1.z * r1.w;
-  r3.y = cmp(abs(r1.x) < abs(r0.w));
-  r3.x = r3.x * -2 + 1.57079637;
-  r3.x = r3.y ? r3.x : 0;
-  r1.z = r1.z * r1.w + r3.x;
-  r1.w = cmp(r1.x < -r1.x);
-  r1.w = r1.w ? -3.141593 : 0;
-  r1.z = r1.z + r1.w;
-  r1.w = min(r1.x, r0.w);
-  r0.w = max(r1.x, r0.w);
-  r1.x = cmp(r1.w < -r1.w);
-  r0.w = cmp(r0.w >= -r0.w);
-  r0.w = r0.w ? r1.x : 0;
-  r0.w = r0.w ? -r1.z : r1.z;
-  r0.w = 57.2957802 * r0.w;
-  r0.z = r0.z ? 0 : r0.w;
-  r0.w = cmp(r0.z < 0);
-  r1.x = 360 + r0.z;
-  r0.z = r0.w ? r1.x : r0.z;
-  r0.w = cmp(r0.z < -180);
-  r1.x = cmp(180 < r0.z);
-  r1.zw = float2(360, -360) + r0.zz;
-  r0.z = r1.x ? r1.w : r0.z;
-  r0.z = r0.w ? r1.z : r0.z;
-  r0.z = 0.0148148146 * r0.z;
-  r0.z = 1 + -abs(r0.z);
-  r0.z = max(0, r0.z);
-  r0.w = r0.z * -2 + 3;
-  r0.z = r0.z * r0.z;
-  r0.z = r0.w * r0.z;
-  r0.z = r0.z * r0.z;
-  r0.x = r0.z * r0.x;
-  r0.y = -r1.y * r0.y + 0.0299999993;
-  r0.x = r0.x * r0.y;
-  r2.x = r0.x * 0.180000007 + r2.y;
-  r0.xyz = max(float3(0, 0, 0), r2.xzw);
-  r0.xyz = min(float3(65504, 65504, 65504), r0.xyz);
+    // XYZ -> AP0
+    r1.y = dot(float2(1.04981101, -9.74799987e-005), r0.xz);
+    r1.z = dot(float3(-0.495902956, 1.37331295, 0.0982400328), r0.xyz);
+    r1.w = dot(float2(3.99999998e-008, 0.991252124), r0.xz);
 
-  // AP0 => AP1
-  r1.x = dot(float3(1.45143926, -0.236510754, -0.214928567), r0.xyz);
-  r1.y = dot(float3(-0.0765537769, 1.17622972, -0.0996759236), r0.xyz);
-  r1.z = dot(float3(0.00831614807, -0.00603244966, 0.997716308), r0.xyz);
-  r0.xyz = max(float3(0, 0, 0), r1.xyz);
-  r0.xyz = min(float3(65504, 65504, 65504), r0.xyz);
+    r0.x = min(r1.y, r1.z);
+    r0.x = min(r0.x, r1.w);
+    r0.y = max(r1.y, r1.z);
+    r0.y = max(r0.y, r1.w);
+    r0.xyz = max(float3(1.00000001e-010, 1.00000001e-010, 0.00999999978), r0.xyy);
+    r0.x = r0.y + -r0.x;
+    r0.x = r0.x / r0.z;
+    r0.yzw = r1.wzy + -r1.zyw;
+    r0.yz = r1.wz * r0.yz;
+    r0.y = r0.y + r0.z;
+    r0.y = r1.y * r0.w + r0.y;
+    r0.y = sqrt(r0.y);
+    r0.z = r1.w + r1.z;
+    r0.z = r0.z + r1.y;
+    r0.y = r0.y * 1.75 + r0.z;
+    r0.w = -0.400000006 + r0.x;
+    r1.x = 2.5 * r0.w;
+    r1.x = 1 + -abs(r1.x);
+    r1.x = max(0, r1.x);
+    r2.x = cmp(0 < r0.w);
+    r0.w = cmp(r0.w < 0);
+    r0.w = (int)-r2.x + (int)r0.w;
+    r0.w = (int)r0.w;
+    r1.x = -r1.x * r1.x + 1;
+    r0.w = r0.w * r1.x + 1;
+    r0.zw = float2(0.333333343, 0.0250000004) * r0.yw;
+    r1.x = cmp(0.159999996 >= r0.y);
+    r0.y = cmp(r0.y >= 0.479999989);
+    r0.z = 0.0799999982 / r0.z;
+    r0.z = -0.5 + r0.z;
+    r0.z = r0.w * r0.z;
+    r0.y = r0.y ? 0 : r0.z;
+    r0.y = r1.x ? r0.w : r0.y;
+    r0.y = 1 + r0.y;
+    r2.yzw = r1.yzw * r0.yyy;
+    r0.zw = cmp(r2.zw == r2.yz);
+    r0.z = r0.w ? r0.z : 0;
+    r0.w = r1.z * r0.y + -r2.w;
+    r0.w = 1.73205078 * r0.w;
+    r1.x = r2.y * 2 + -r2.z;
+    r1.x = -r1.w * r0.y + r1.x;
+    r1.z = min(abs(r1.x), abs(r0.w));
+    r1.w = max(abs(r1.x), abs(r0.w));
+    r1.w = 1 / r1.w;
+    r1.z = r1.z * r1.w;
+    r1.w = r1.z * r1.z;
+    r3.x = r1.w * 0.0208350997 + -0.0851330012;
+    r3.x = r1.w * r3.x + 0.180141002;
+    r3.x = r1.w * r3.x + -0.330299497;
+    r1.w = r1.w * r3.x + 0.999866009;
+    r3.x = r1.z * r1.w;
+    r3.y = cmp(abs(r1.x) < abs(r0.w));
+    r3.x = r3.x * -2 + 1.57079637;
+    r3.x = r3.y ? r3.x : 0;
+    r1.z = r1.z * r1.w + r3.x;
+    r1.w = cmp(r1.x < -r1.x);
+    r1.w = r1.w ? -3.141593 : 0;
+    r1.z = r1.z + r1.w;
+    r1.w = min(r1.x, r0.w);
+    r0.w = max(r1.x, r0.w);
+    r1.x = cmp(r1.w < -r1.w);
+    r0.w = cmp(r0.w >= -r0.w);
+    r0.w = r0.w ? r1.x : 0;
+    r0.w = r0.w ? -r1.z : r1.z;
+    r0.w = 57.2957802 * r0.w;
+    r0.z = r0.z ? 0 : r0.w;
+    r0.w = cmp(r0.z < 0);
+    r1.x = 360 + r0.z;
+    r0.z = r0.w ? r1.x : r0.z;
+    r0.w = cmp(r0.z < -180);
+    r1.x = cmp(180 < r0.z);
+    r1.zw = float2(360, -360) + r0.zz;
+    r0.z = r1.x ? r1.w : r0.z;
+    r0.z = r0.w ? r1.z : r0.z;
+    r0.z = 0.0148148146 * r0.z;
+    r0.z = 1 + -abs(r0.z);
+    r0.z = max(0, r0.z);
+    r0.w = r0.z * -2 + 3;
+    r0.z = r0.z * r0.z;
+    r0.z = r0.w * r0.z;
+    r0.z = r0.z * r0.z;
+    r0.x = r0.z * r0.x;
+    r0.y = -r1.y * r0.y + 0.0299999993;
+    r0.x = r0.x * r0.y;
+    r2.x = r0.x * 0.180000007 + r2.y;
+    r0.xyz = max(float3(0, 0, 0), r2.xzw);
+    r0.xyz = min(float3(65504, 65504, 65504), r0.xyz);
 
-  // RRT SAT MATRIX
-  r0.w = dot(float3(0.970888972, 0.0269632991, 0.00214758003), r0.xyz);
-  r1.x = dot(float3(0.0108891996, 0.986962974, 0.00214758003), r0.xyz);
-  r0.x = dot(float3(0.0108891996, 0.0269632991, 0.962148011), r0.xyz);
+    // AP0 => AP1
+    r1.x = dot(float3(1.45143926, -0.236510754, -0.214928567), r0.xyz);
+    r1.y = dot(float3(-0.0765537769, 1.17622972, -0.0996759236), r0.xyz);
+    r1.z = dot(float3(0.00831614807, -0.00603244966, 0.997716308), r0.xyz);
+    r0.xyz = max(float3(0, 0, 0), r1.xyz);
+    r0.xyz = min(float3(65504, 65504, 65504), r0.xyz);
+
+    // RRT SAT MATRIX
+    r0.w = dot(float3(0.970888972, 0.0269632991, 0.00214758003), r0.xyz);
+    r1.x = dot(float3(0.0108891996, 0.986962974, 0.00214758003), r0.xyz);
+    r0.x = dot(float3(0.0108891996, 0.0269632991, 0.962148011), r0.xyz);
+
+    ap1_graded_color = lerp(ap1_graded_color, float3(r0.w, r1.x, r0.x),
+                            CUSTOM_ACES_LOOK_STRENGTH);
+  } else {
+    //
+  }
+
+  r0.w = ap1_graded_color.x;
+  r1.x = ap1_graded_color.y;
+  r0.x = ap1_graded_color.z;
 
   r0.y = cmp(0 >= r0.w);
   r0.z = log2(r0.w);
@@ -320,21 +336,41 @@ void main(uint3 vThreadID: SV_DispatchThreadID) {
   r0.x = 3.32192802 * r0.y;
   r2.z = exp2(r0.x);
 
+  // ODT from 0.0001 to 10000 nits
+
   // AP1 => AP0
-  r0.x = dot(float3(0.695452213, 0.140678704, 0.163869068), r2.xyz);
-  r0.y = dot(float3(0.0447945632, 0.859671116, 0.0955343172), r2.xyz);
-  r0.z = dot(float3(-0.00552588282, 0.00402521016, 1.00150073), r2.xyz);
+  // r0.x = dot(float3(0.695452213, 0.140678704, 0.163869068), r2.xyz);
+  // r0.y = dot(float3(0.0447945632, 0.859671116, 0.0955343172), r2.xyz);
+  // r0.z = dot(float3(-0.00552588282, 0.00402521016, 1.00150073), r2.xyz);
 
   // AP0 => AP1
-  r0.w = dot(float3(1.45143926, -0.236510754, -0.214928567), r0.xyz);
-  r1.x = dot(float3(-0.0765537769, 1.17622972, -0.0996759236), r0.xyz);
-  r0.x = dot(float3(0.00831614807, -0.00603244966, 0.997716308), r0.xyz);
+  // r0.w = dot(float3(1.45143926, -0.236510754, -0.214928567), r0.xyz);
+  // r1.x = dot(float3(-0.0765537769, 1.17622972, -0.0996759236), r0.xyz);
+  // r0.x = dot(float3(0.00831614807, -0.00603244966, 0.997716308), r0.xyz);
 
-  r0.yz = gtParams.P * gtParams.l;
+  r0.w = r2.x;
+  r1.x = r2.y;
+  r0.x = r2.z;
+
+  // Exposure x4 and clip to 1500 nits, change to 10K is retonemapping
+  float new_peak = RENODX_TONE_MAP_TYPE == 0.f ? gtParams.P : 10000.f;
+
+  // r0.yz = gtParams.P * gtParams.l;
+  r0.yz = new_peak * gtParams.l;
+
   r0.y = r0.y / gtParams.a;
-  r1.y = -gtParams.P * gtParams.l + gtParams.P;
+  // r1.y = -gtParams.P * gtParams.l + gtParams.P;
+  r1.y = -new_peak * gtParams.l + new_peak;
+
   r0.z = r0.z / r1.y;
-  r0.z = -r0.z / gtParams.P;
+  // r0.z = -r0.z / gtParams.P;
+  r0.z = -r0.z / new_peak;
+
+  // min: p*l / a
+  // (-1 * (p*l / a) / (p - (p*l)) / p
+
+  float threshold = r0.y;
+
   r1.z = cmp(r0.w >= r0.y);
   r1.w = r1.z ? 1.000000 : 0;
   r1.z = r1.z ? 0 : 1;
@@ -342,10 +378,12 @@ void main(uint3 vThreadID: SV_DispatchThreadID) {
   r2.x = r2.x * r0.z;
   r2.x = 1.44269502 * r2.x;
   r2.x = exp2(r2.x);
-  r2.x = -r1.y * r2.x + gtParams.P;
+  // r2.x = -r1.y * r2.x + gtParams.P;
+  r2.x = -r1.y * r2.x + new_peak;
   r0.w = gtParams.a * r0.w;
   r1.w = r2.x * r1.w;
   r2.x = r0.w * r1.z + r1.w;
+
   r0.w = cmp(r1.x >= r0.y);
   r1.z = r0.w ? 1.000000 : 0;
   r0.w = r0.w ? 0 : 1;
@@ -353,10 +391,12 @@ void main(uint3 vThreadID: SV_DispatchThreadID) {
   r1.w = r1.w * r0.z;
   r1.w = 1.44269502 * r1.w;
   r1.w = exp2(r1.w);
-  r1.w = -r1.y * r1.w + gtParams.P;
+  // r1.w = -r1.y * r1.w + gtParams.P;
+  r1.w = -r1.y * r1.w + new_peak;
   r1.x = gtParams.a * r1.x;
   r1.z = r1.w * r1.z;
   r2.y = r1.x * r0.w + r1.z;
+
   r0.w = cmp(r0.x >= r0.y);
   r1.x = r0.w ? 1.000000 : 0;
   r0.w = r0.w ? 0 : 1;
@@ -364,25 +404,28 @@ void main(uint3 vThreadID: SV_DispatchThreadID) {
   r0.y = r0.z * r0.y;
   r0.y = 1.44269502 * r0.y;
   r0.y = exp2(r0.y);
-  r0.y = -r1.y * r0.y + gtParams.P;
+  // r0.y = -r1.y * r0.y + gtParams.P;
+  r0.y = -r1.y * r0.y + new_peak;
   r0.x = gtParams.a * r0.x;
   r0.y = r0.y * r1.x;
   r2.z = r0.x * r0.w + r0.y;
 
-  // AP1 -> XYZ
-  r0.x = dot(float3(0.662454188, 0.134004205, 0.156187683), r2.xyz);
-  r0.y = dot(float3(0.272228718, 0.674081743, 0.0536895171), r2.xyz);
-  r0.z = dot(float3(-0.00557464967, 0.0040607336, 1.01033914), r2.xyz);
+  // AP1_2_XYZ_MAT
+  // r0.x = dot(float3(0.662454188, 0.134004205, 0.156187683), r2.xyz);
+  // r0.y = dot(float3(0.272228718, 0.674081743, 0.0536895171), r2.xyz);
+  // r0.z = dot(float3(-0.00557464967, 0.0040607336, 1.01033914), r2.xyz);
 
-  // D60 -> D65
-  r1.x = dot(float3(0.987223983, -0.00611326983, 0.0159533005), r0.xyz);
-  r1.y = dot(float3(-0.00759836007, 1.00186002, 0.00533019984), r0.xyz);
-  r1.z = dot(float3(0.00307257008, -0.00509594986, 1.08168006), r0.xyz);
+  // D60_2_D65_CAT
+  // r1.x = dot(float3(0.987223983, -0.00611326983, 0.0159533005), r0.xyz);
+  // r1.y = dot(float3(-0.00759836007, 1.00186002, 0.00533019984), r0.xyz);
+  // r1.z = dot(float3(0.00307257008, -0.00509594986, 1.08168006), r0.xyz);
 
-  // XYZ -> BT.2020
-  r0.x = dot(float3(1.7166512, -0.35567078, -0.253366292), r1.xyz);
-  r0.y = dot(float3(-0.66668433, 1.61648118, 0.0157685466), r1.xyz);
-  r0.z = dot(float3(0.0176398568, -0.042770613, 0.942103148), r1.xyz);
+  // XYZ_2_BT2020_MAT
+  // r0.x = dot(float3(1.7166512, -0.35567078, -0.253366292), r1.xyz);
+  // r0.y = dot(float3(-0.66668433, 1.61648118, 0.0157685466), r1.xyz);
+  // r0.z = dot(float3(0.0176398568, -0.042770613, 0.942103148), r1.xyz);
+
+  r0.xyz = renodx::color::bt2020::from::AP1(r2.xyz);
 
   // Linear -> PQ
   r0.xyz = saturate(float3(9.99999975e-005, 9.99999975e-005, 9.99999975e-005) * r0.xyz);
