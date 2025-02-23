@@ -1,4 +1,4 @@
-#include "./common.hlsl"
+#include "./shared.h"
 
 // ---- Created with 3Dmigoto v1.3.16 on Sun Oct 27 13:38:21 2024
 
@@ -78,14 +78,13 @@ void main(
   o0.xyz = r0.xxx * r1.xyz + r0.yzw;
   o0.w = 1;
 
-  if (injectedData.toneMapType == 0.f) {
+  if (RENODX_TONE_MAP_TYPE != 0.f) {
+    o0.rgb = renodx::draw::ToneMapPass(o0.rgb);
+  } else {
     o0.rgb = saturate(o0.rgb);
-    o0.rgb *= injectedData.toneMapGameNits / injectedData.toneMapUINits;
-    return;
   }
-
-  o0.rgb = ToneMap(o0.rgb);
-  o0.rgb *= injectedData.toneMapGameNits / injectedData.toneMapUINits;
+  
+  o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
 
   return;
 }
