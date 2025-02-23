@@ -20,11 +20,10 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
-
     CustomShaderEntry(0x4D5D5505), // fxaa, combines water + rest of world, and also clamps scene
+    CustomShaderEntry(0xE49EE0CB), // fxaa for below zero, same as above but with lut
     CustomShaderEntry(0xA52F70F8), // fxaa, post processing (bloom, ...)
     CustomShaderEntry(0x20133A8B), // final
-
 };
 
 ShaderInjectData shader_injection;
@@ -302,6 +301,11 @@ renodx::utils::settings::Settings settings = {
     // },
     new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::TEXT,
+        .label = "The mod currently only works with all post-processing effects enabled and FXAA.",
+        .section = "Instructions",
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::TEXT,
         .label = "RenoDX by ShortFuse, game mod by akuru",
         .section = "About",
     },
@@ -389,7 +393,7 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize) {
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
-extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Subnautica";
+extern "C" __declspec(dllexport) constexpr const char* DESCRIPTION = "RenoDX for Subnautica and Below Zero";
 
 BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
