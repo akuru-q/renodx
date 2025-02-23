@@ -1,4 +1,4 @@
-#include "./common.hlsl"
+#include "./shared.h"
 
 // ---- Created with 3Dmigoto v1.3.16 on Sun Oct 27 13:38:22 2024
 
@@ -113,15 +113,15 @@ void main(
   o0.xyz = max_range * r0.xyz;
   o0.w = 1;
 
-  if (injectedData.toneMapType == 0.f) {
+  if (RENODX_TONE_MAP_TYPE == 0.f) {
     return;
   }
 
   float3 postProcess = o0.rgb;
 
-  float3 neutral_sdr_color = RenoDRTSmoothClamp(untonemapped.rgb);
+  float3 neutral_sdr_color = renodx::tonemap::renodrt::NeutralSDR(untonemapped.rgb);
 
-  float3 graded = UpgradeToneMapPerChannel(
+  float3 graded = renodx::tonemap::UpgradeToneMap(
       untonemapped,
       neutral_sdr_color,
       postProcess,
