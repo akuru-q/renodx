@@ -1,5 +1,4 @@
 #include "./shared.h"
-#include "./tonemapper.hlsl"
 
 // ---- Created with 3Dmigoto v1.3.16 on Tue Oct 15 23:31:55 2024
 Texture2D<float4> t5 : register(t5);
@@ -99,8 +98,14 @@ void main(
     
     //o0.xyz = saturate(r1.xyz * r2.xyz + r0.xyz);
     o0.xyz = (r1.xyz * r2.xyz + r0.xyz);
-  
-    o0.rgb = applyUserTonemap(o0.rgb, saturate(o0.rgb));
+
+    if (RENODX_TONE_MAP_TYPE != 0.f) {
+      o0.rgb = renodx::draw::ToneMapPass(o0.rgb);
+    } else {
+      o0.rgb = saturate(o0.rgb);
+    }
+    
+    o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
     
     o0.w = 1;
     return;
