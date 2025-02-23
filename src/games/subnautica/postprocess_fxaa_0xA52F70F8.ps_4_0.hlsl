@@ -459,5 +459,10 @@ void main(
   
     o0.xyz = r0.xxx * float3(0.00196078443, 0.00196078443, 0.00196078443) + r1.xyz;
     o0.w = 1;
+
+    if (RENODX_TONE_MAP_TYPE == 0.f) {
+      o0.rgb = saturate(o0.rgb);
+    }
+
     return;
 }
