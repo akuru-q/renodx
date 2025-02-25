@@ -150,7 +150,7 @@ renodx::utils::settings::Settings settings = {
         .key = "ToneMapScaling",
         .binding = &RENODX_TONE_MAP_PER_CHANNEL,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,
-        .default_value = 0.f,
+        .default_value = 1.f,
         .label = "Scaling",
         .section = "Tone Mapping",
         .tooltip = "Luminance scales colors consistently while per-channel saturates and blows out sooner",
@@ -261,11 +261,11 @@ renodx::utils::settings::Settings settings = {
             renodx::utils::settings::UpdateSetting("GammaCorrection", 1.f);
             renodx::utils::settings::UpdateSetting("ToneMapScaling", 1.f);
             renodx::utils::settings::UpdateSetting("ColorGradeExposure", 1.f);
-            renodx::utils::settings::UpdateSetting("ColorGradeHighlights", 60.f);
-            renodx::utils::settings::UpdateSetting("ColorGradeShadows", 60.f);
+            renodx::utils::settings::UpdateSetting("ColorGradeHighlights", 50.f);
+            renodx::utils::settings::UpdateSetting("ColorGradeShadows", 58.f);
             renodx::utils::settings::UpdateSetting("ColorGradeContrast", 60.f);
             renodx::utils::settings::UpdateSetting("ColorGradeSaturation", 50.f);
-            renodx::utils::settings::UpdateSetting("ColorGradeHighlightSaturation", 60.f);
+            renodx::utils::settings::UpdateSetting("ColorGradeHighlightSaturation", 70.f);
             renodx::utils::settings::UpdateSetting("ColorGradeBlowout", 0.f);
             renodx::utils::settings::UpdateSetting("ColorGradeFlare", 60.f);
         }
