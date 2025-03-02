@@ -6,12 +6,10 @@
 #pragma once
 
 #include <include/reshade.hpp>
-#include <memory>
-#include <optional>
 #include <unordered_map>
 #include <vector>
 
-#include "./bitwise.hpp"
+#include "./data.hpp"
 #include "./resource.hpp"
 
 namespace renodx::utils::state {
@@ -102,10 +100,9 @@ struct __declspec(uuid("019382d7-4364-7f3f-a42c-1a2619748db0")) CommandListData 
 
 static bool is_primary_hook = false;
 static void OnInitDevice(reshade::api::device* device) {
-  auto* data = &device->get_private_data<DeviceData>();
-  if (data != nullptr) return;
-
-  data = &device->create_private_data<DeviceData>();
+  DeviceData* data;
+  bool created = renodx::utils::data::CreateOrGet<DeviceData>(device, data);
+  if (!created) return;
 
   is_primary_hook = true;
 }
@@ -116,12 +113,12 @@ static void OnDestroyDevice(reshade::api::device* device) {
 
 static void OnInitCommandList(reshade::api::command_list* cmd_list) {
   if (!is_primary_hook) return;
-  cmd_list->create_private_data<CommandListData>();
+  renodx::utils::data::Create<CommandListData>(cmd_list);
 }
 
 static void OnDestroyCommandList(reshade::api::command_list* cmd_list) {
   if (!is_primary_hook) return;
-  cmd_list->destroy_private_data<CommandListData>();
+  renodx::utils::data::Delete<CommandListData>(cmd_list);
 }
 
 static void OnBindRenderTargetsAndDepthStencil(
@@ -130,8 +127,8 @@ static void OnBindRenderTargetsAndDepthStencil(
     const reshade::api::resource_view* rtvs,
     reshade::api::resource_view dsv) {
   if (!is_primary_hook) return;
-  auto& data = cmd_list->get_private_data<CommandListData>();
-  auto& state = data.current_state;
+  auto* data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  auto& state = data->current_state;
   state.render_targets.assign(rtvs, rtvs + count);
   state.depth_stencil = dsv;
 }
@@ -141,8 +138,8 @@ static void OnBindPipeline(
     reshade::api::pipeline_stage stages,
     reshade::api::pipeline pipeline) {
   if (!is_primary_hook) return;
-  auto& data = cmd_list->get_private_data<CommandListData>();
-  auto& state = data.current_state;
+  auto* data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  auto& state = data->current_state;
 
   if (stages == reshade::api::pipeline_stage::all) {
     state.pipelines.clear();
@@ -157,8 +154,8 @@ static void OnBindPipelineStates(
     uint32_t count, const reshade::api::dynamic_state* states,
     const uint32_t* values) {
   if (!is_primary_hook) return;
-  auto& data = cmd_list->get_private_data<CommandListData>();
-  auto& state = data.current_state;
+  auto* data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  auto& state = data->current_state;
 
   for (uint32_t i = 0; i < count; ++i) {
     switch (states[i]) {
@@ -231,8 +228,8 @@ static void OnBindViewports(
     uint32_t first, uint32_t count,
     const reshade::api::viewport* viewports) {
   if (!is_primary_hook) return;
-  auto& data = cmd_list->get_private_data<CommandListData>();
-  auto& state = data.current_state;
+  auto* data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  auto& state = data->current_state;
 
   const uint32_t total_count = first + count;
   if (state.viewports.size() < total_count) {
@@ -249,8 +246,8 @@ static void OnBindScissorRects(
     uint32_t first, uint32_t count,
     const reshade::api::rect* rects) {
   if (!is_primary_hook) return;
-  auto& data = cmd_list->get_private_data<CommandListData>();
-  auto& state = data.current_state;
+  auto* data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  auto& state = data->current_state;
 
   const uint32_t total_count = first + count;
   if (state.scissor_rects.size() < total_count) {
@@ -268,7 +265,7 @@ static void OnBindDescriptorTables(reshade::api::command_list* cmd_list,
                                    uint32_t first, uint32_t count,
                                    const reshade::api::descriptor_table* tables) {
   if (!is_primary_hook) return;
-  auto& state = cmd_list->get_private_data<CommandListData>().current_state.descriptor_tables[stages];
+  auto& state = renodx::utils::data::Get<CommandListData>(cmd_list)->current_state.descriptor_tables[stages];
 
   if (layout != state.first) {
     state.second.clear();  // Layout changed, which resets all descriptor table bindings
@@ -287,16 +284,16 @@ static void OnBindDescriptorTables(reshade::api::command_list* cmd_list,
 
 static void OnResetCommandList(reshade::api::command_list* cmd_list) {
   if (!is_primary_hook) return;
-  auto& data = cmd_list->get_private_data<CommandListData>();
-  if (std::addressof(data) == nullptr) return;
-  auto& state = data.current_state;
+  auto* data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  if (data == nullptr) return;
+  auto& state = data->current_state;
   state.Clear();
 }
 
-static std::optional<CommandListState> GetCurrentState(reshade::api::command_list* cmd_list) {
-  auto& data = cmd_list->get_private_data<CommandListData>();
-  if (std::addressof(data) == nullptr) return std::nullopt;
-  return data.current_state;
+static CommandListState* GetCurrentState(reshade::api::command_list* cmd_list) {
+  auto* data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  if (data == nullptr) return nullptr;
+  return &data->current_state;
 }
 
 static bool attached = false;

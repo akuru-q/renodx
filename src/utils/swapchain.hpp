@@ -7,7 +7,6 @@
 
 #include <dxgi1_6.h>
 #include <ios>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <unordered_set>
@@ -16,6 +15,7 @@
 #include <crc32_hash.hpp>
 #include <include/reshade.hpp>
 
+#include "./data.hpp"
 #include "./device.hpp"
 #include "./format.hpp"
 #include "./platform.hpp"
@@ -39,10 +39,9 @@ struct __declspec(uuid("3cf9a628-8518-4509-84c3-9fbe9a295212")) CommandListData 
 
 static bool is_primary_hook = false;
 static void OnInitDevice(reshade::api::device* device) {
-  auto* data = &device->get_private_data<DeviceData>();
-  if (data != nullptr) return;
-
-  data = &device->create_private_data<DeviceData>();
+  DeviceData* data;
+  bool created = renodx::utils::data::CreateOrGet<DeviceData>(device, data);
+  if (!created) return;
 
   is_primary_hook = true;
 }
@@ -54,29 +53,29 @@ static void OnDestroyDevice(reshade::api::device* device) {
 static void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize) {
   if (!is_primary_hook) return;
   auto* device = swapchain->get_device();
-  auto& data = device->get_private_data<DeviceData>();
-  if (std::addressof(data) == nullptr) return;
-  const std::unique_lock lock(data.mutex);
+  auto* data = renodx::utils::data::Get<DeviceData>(device);
+  if (data == nullptr) return;
+  const std::unique_lock lock(data->mutex);
 
-  data.back_buffer_desc = device->get_resource_desc(swapchain->get_current_back_buffer());
+  data->back_buffer_desc = device->get_resource_desc(swapchain->get_current_back_buffer());
 }
 
 static void OnDestroySwapchain(reshade::api::swapchain* swapchain, bool resize) {
   if (!is_primary_hook) return;
   auto* device = swapchain->get_device();
-  auto& data = device->get_private_data<DeviceData>();
-  data.back_buffer_desc = {};
+  auto* data = renodx::utils::data::Get<DeviceData>(device);
+  data->back_buffer_desc = {};
 }
 
 static void OnInitEffectRuntime(reshade::api::effect_runtime* runtime) {
   if (!is_primary_hook) return;
   auto* device = runtime->get_device();
-  auto& data = device->get_private_data<DeviceData>();
+  auto* data = renodx::utils::data::Get<DeviceData>(device);
 
   // Runtime may be on a separate device
   std::stringstream s;
-  if (std::addressof(data) == nullptr) {
-    s << "utils::swapchain::OnInitEffectRuntime(No device data: " << reinterpret_cast<void*>(device);
+  if (data == nullptr) {
+    s << "utils::swapchain::OnInitEffectRuntime(No device data: " << reinterpret_cast<uintptr_t>(device);
     s << ")";
     reshade::log::message(reshade::log::level::warning, s.str().c_str());
     return;
@@ -84,13 +83,13 @@ static void OnInitEffectRuntime(reshade::api::effect_runtime* runtime) {
 
   reshade::api::color_space color_space;
   {
-    const std::unique_lock lock(data.mutex);
-    data.effect_runtimes.emplace(runtime);
-    s << "utils::swapchain::OnInitEffectRuntime(Runtime: " << reinterpret_cast<void*>(device);
-    if (!data.effect_runtimes.contains(runtime)) {
+    const std::unique_lock lock(data->mutex);
+    data->effect_runtimes.emplace(runtime);
+    s << "utils::swapchain::OnInitEffectRuntime(Runtime: " << reinterpret_cast<uintptr_t>(device);
+    if (!data->effect_runtimes.contains(runtime)) {
       s << " (new) ";
     }
-    color_space = data.current_color_space;
+    color_space = data->current_color_space;
   }
   if (color_space != reshade::api::color_space::unknown) {
     runtime->set_color_space(color_space);
@@ -108,23 +107,27 @@ static void OnInitEffectRuntime(reshade::api::effect_runtime* runtime) {
 static void OnDestroyEffectRuntime(reshade::api::effect_runtime* runtime) {
   if (!is_primary_hook) return;
   auto* device = runtime->get_device();
-  auto& data = device->get_private_data<DeviceData>();
+  auto* data = renodx::utils::data::Get<DeviceData>(device);
 
   // Runtime may be on a separate device
-  if (std::addressof(data) == nullptr) return;
+  if (data == nullptr) return;
 
-  const std::unique_lock lock(data.mutex);
-  data.effect_runtimes.erase(runtime);
+  const std::unique_lock lock(data->mutex);
+  data->effect_runtimes.erase(runtime);
 }
 
 static void OnInitCommandList(reshade::api::command_list* cmd_list) {
   if (!is_primary_hook) return;
-  auto& data = cmd_list->create_private_data<CommandListData>();
+  renodx::utils::data::Create<CommandListData>(cmd_list);
 }
 
 static void OnDestroyCommandList(reshade::api::command_list* cmd_list) {
   if (!is_primary_hook) return;
-  cmd_list->destroy_private_data<CommandListData>();
+  renodx::utils::data::Delete<CommandListData>(cmd_list);
+}
+
+static CommandListData* GetCurrentState(reshade::api::command_list* cmd_list) {
+  return renodx::utils::data::Get<CommandListData>(cmd_list);
 }
 
 static bool IsBackBuffer(reshade::api::resource resource) {
@@ -136,9 +139,9 @@ static bool IsBackBuffer(reshade::api::resource resource) {
 static reshade::api::resource_desc GetBackBufferDesc(reshade::api::device* device) {
   reshade::api::resource_desc desc = {};
   {
-    auto& device_data = device->get_private_data<DeviceData>();
-    const std::shared_lock lock(device_data.mutex);
-    desc = device_data.back_buffer_desc;
+    auto* device_data = renodx::utils::data::Get<DeviceData>(device);
+    // const std::shared_lock lock(device_data->mutex);
+    desc = device_data->back_buffer_desc;
   }
   return desc;
 }
@@ -149,38 +152,35 @@ static reshade::api::resource_desc GetBackBufferDesc(reshade::api::command_list*
   return GetBackBufferDesc(device);
 }
 
-static void OnBindRenderTargetsAndDepthStencil(
+inline void OnBindRenderTargetsAndDepthStencil(
     reshade::api::command_list* cmd_list,
     uint32_t count,
     const reshade::api::resource_view* rtvs,
     reshade::api::resource_view dsv) {
   if (!is_primary_hook) return;
-  auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+  auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
   const bool found_swapchain_rtv = false;
-  cmd_list_data.current_render_targets.assign(rtvs, rtvs + count);
-  cmd_list_data.current_depth_stencil = dsv;
-  cmd_list_data.has_swapchain_render_target_dirty = true;
+  cmd_list_data->current_render_targets.assign(rtvs, rtvs + count);
+  cmd_list_data->current_depth_stencil = dsv;
+  cmd_list_data->has_swapchain_render_target_dirty = true;
 }
 
 static bool HasBackBufferRenderTarget(reshade::api::command_list* cmd_list) {
-  auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+  auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
 
-  if (!cmd_list_data.has_swapchain_render_target_dirty) {
-    return cmd_list_data.has_swapchain_render_target;
+  if (!cmd_list_data->has_swapchain_render_target_dirty) {
+    return cmd_list_data->has_swapchain_render_target;
   }
 
-  const uint32_t count = cmd_list_data.current_render_targets.size();
+  const uint32_t count = cmd_list_data->current_render_targets.size();
   if (count == 0u) {
-    cmd_list_data.has_swapchain_render_target_dirty = false;
-    cmd_list_data.has_swapchain_render_target = false;
+    cmd_list_data->has_swapchain_render_target_dirty = false;
+    cmd_list_data->has_swapchain_render_target = false;
     return false;
   }
-  auto* device = cmd_list->get_device();
-  auto& device_data = device->get_private_data<DeviceData>();
-  const std::shared_lock device_lock(device_data.mutex);
 
   bool found_swapchain_rtv = false;
-  for (const auto& rtv : cmd_list_data.current_render_targets) {
+  for (const auto& rtv : cmd_list_data->current_render_targets) {
     if (rtv.handle == 0u) continue;
     auto* resource_view_info = resource::GetResourceViewInfo(rtv);
     if (resource_view_info == nullptr) continue;
@@ -190,19 +190,19 @@ static bool HasBackBufferRenderTarget(reshade::api::command_list* cmd_list) {
     break;
   }
 
-  cmd_list_data.has_swapchain_render_target_dirty = false;
-  cmd_list_data.has_swapchain_render_target = found_swapchain_rtv;
+  cmd_list_data->has_swapchain_render_target_dirty = false;
+  cmd_list_data->has_swapchain_render_target = found_swapchain_rtv;
   return found_swapchain_rtv;
 }
 
 static std::vector<reshade::api::resource_view>& GetRenderTargets(reshade::api::command_list* cmd_list) {
-  auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
-  return cmd_list_data.current_render_targets;
+  auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  return cmd_list_data->current_render_targets;
 };
 
 static reshade::api::resource_view& GetDepthStencil(reshade::api::command_list* cmd_list) {
-  auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
-  return cmd_list_data.current_depth_stencil;
+  auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  return cmd_list_data->current_depth_stencil;
 };
 
 static bool IsDirectX(reshade::api::swapchain* swapchain) {
@@ -355,12 +355,13 @@ static bool ChangeColorSpace(reshade::api::swapchain* swapchain, reshade::api::c
   auto* device = swapchain->get_device();
 
   std::unordered_set<reshade::api::effect_runtime*> runtimes;
-  auto& data = device->get_private_data<DeviceData>();
-  if (std::addressof(data) != nullptr) {
-    std::unique_lock lock(data.mutex);
+  auto* data = renodx::utils::data::Get<DeviceData>(device);
 
-    data.current_color_space = color_space;
-    runtimes = data.effect_runtimes;
+  if (data != nullptr) {
+    std::unique_lock lock(data->mutex);
+
+    data->current_color_space = color_space;
+    runtimes = data->effect_runtimes;
   }
 
   for (auto* runtime : runtimes) {
@@ -447,7 +448,7 @@ static void ResizeBuffer(
 
 static bool attached = false;
 
-inline void Use(DWORD fdw_reason) {
+static void Use(DWORD fdw_reason) {
   renodx::utils::resource::Use(fdw_reason);
   switch (fdw_reason) {
     case DLL_PROCESS_ATTACH:
