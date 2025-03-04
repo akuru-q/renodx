@@ -46,7 +46,7 @@ renodx::utils::settings::Settings settings = {
         .label = "Tone Mapper",
         .section = "Tone Mapping",
         .tooltip = "Sets the tone mapper type",
-        .labels = {"Vanilla", "RenoDRT"},
+        .labels = {"Vanilla", "RenoDRT", "DICE"},
         .parse = [](float value) { return value * 3.f; },
         .is_visible = []() { return settings[0]->GetValue() >= 1; },
     },
@@ -311,6 +311,11 @@ renodx::utils::settings::Settings settings = {
     },
     new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::TEXT,
+        .label = "The mod currently only works if you have motion blur disabled.",
+        .section = "Instructions",
+    },
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::TEXT,
         .label = "Game mod by akuru, RenoDX Framework by ShortFuse",
         .section = "About",
     },
@@ -434,7 +439,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
         .new_format = reshade::api::format::r16g16b16a16_float,
         .use_resource_view_cloning = true,
         //.dimensions = {1920,1080},
-        //.aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
+        .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
       });
 
 
