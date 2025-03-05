@@ -20,7 +20,7 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
-  //CustomShaderEntry(0xDD8721DF), // skybox, needs inv tonemap (broken decomp)
+
 };
 
 ShaderInjectData shader_injection;
@@ -46,7 +46,7 @@ renodx::utils::settings::Settings settings = {
         .label = "Tone Mapper",
         .section = "Tone Mapping",
         .tooltip = "Sets the tone mapper type",
-        .labels = {"Vanilla", "RenoDRT", "DICE"},
+        .labels = {"Vanilla", "RenoDRT", "DICE", "Frostbite"},
         .parse = [](float value) { return value * 3.f; },
         .is_visible = []() { return settings[0]->GetValue() >= 1; },
     },
@@ -92,6 +92,18 @@ renodx::utils::settings::Settings settings = {
         .max = 500.f,
     },
     new renodx::utils::settings::Setting{
+        .key = "ToneMapShoulderStart",
+        .binding = &CUSTOM_TONE_MAP_SHOULDER_START,
+        .default_value = 0.6f,
+        .label = "Rolloff/Shoulder Start",
+        .section = "Tone Mapping",
+        .tooltip = "Defines the shoulder start for the tonemapper",
+        .max = 0.99f,
+        .format = "%.2f",
+        .is_visible = []() { return settings[0]->GetValue() >= 1; }
+        //.is_visible = []() { return RENODX_TONE_MAP_TYPE == 6.f || RENODX_TONE_MAP_TYPE == 9.f ; },
+    },
+    new renodx::utils::settings::Setting{
         .key = "ToneMapHueProcessor",
         .binding = &RENODX_TONE_MAP_HUE_PROCESSOR,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,
@@ -116,17 +128,17 @@ renodx::utils::settings::Settings settings = {
         .parse = [](float value) { return value * 0.01f; },
         .is_visible = []() { return settings[0]->GetValue() >= 1; },
     },
-    new renodx::utils::settings::Setting{
-        .key = "ToneMapWorkingColorSpace",
-        .binding = &RENODX_TONE_MAP_WORKING_COLOR_SPACE,
-        .value_type = renodx::utils::settings::SettingValueType::INTEGER,
-        .default_value = 0.f,
-        .label = "Working Color Space",
-        .section = "Tone Mapping",
-        .labels = {"BT709", "BT2020", "AP1"},
-        .is_enabled = []() { return RENODX_TONE_MAP_TYPE >= 1; },
-        .is_visible = []() { return settings[0]->GetValue() >= 2; },
-    },
+    //new renodx::utils::settings::Setting{
+    //    .key = "ToneMapWorkingColorSpace",
+    //    .binding = &RENODX_TONE_MAP_WORKING_COLOR_SPACE,
+    //    .value_type = renodx::utils::settings::SettingValueType::INTEGER,
+    //    .default_value = 0.f,
+    //    .label = "Working Color Space",
+    //    .section = "Tone Mapping",
+    //    .labels = {"BT709", "BT2020", "AP1"},
+    //    .is_enabled = []() { return RENODX_TONE_MAP_TYPE >= 1; },
+    //    .is_visible = []() { return settings[0]->GetValue() >= 2; },
+    //},
     new renodx::utils::settings::Setting{
         .key = "ToneMapHueCorrection",
         .binding = &RENODX_TONE_MAP_HUE_CORRECTION,
@@ -160,7 +172,7 @@ renodx::utils::settings::Settings settings = {
         .section = "Tone Mapping",
         .tooltip = "Luminance scales colors consistently while per-channel saturates and blows out sooner",
         .labels = {"Luminance", "Per Channel"},
-        .is_enabled = []() { return RENODX_TONE_MAP_TYPE >= 1; },
+        .is_enabled = []() { return RENODX_TONE_MAP_TYPE == 3.f; },
         .is_visible = []() { return settings[0]->GetValue() >= 2; },
     },
     new renodx::utils::settings::Setting{
@@ -311,7 +323,7 @@ renodx::utils::settings::Settings settings = {
     },
     new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::TEXT,
-        .label = "The mod currently only works if you have motion blur disabled.",
+        .label = "The mod currently only works if you have motion blur and the Xbox color grading disabled.",
         .section = "Instructions",
     },
     new renodx::utils::settings::Setting{
