@@ -37,7 +37,9 @@ float4 main(float4 vpos: SV_POSITION, float2 uv: TEXCOORD0)
 
     SV_Target.rgb = applyRenoDice(SV_Target.rgb);
 
+    SV_Target.rgb = renodx::color::bt709::from::AP1(SV_Target.rgb);
     SV_Target.rgb = renodx::color::correct::Hue(SV_Target.rgb, saturate(SV_Target.rgb), RENODX_TONE_MAP_HUE_SHIFT, RENODX_TONE_MAP_WORKING_COLOR_SPACE);
+    SV_Target.rgb = renodx::color::ap1::from::BT709(SV_Target.rgb);
   } else if (RENODX_TONE_MAP_TYPE == 9.f) {
     renodx::tonemap::Config config = renodx::tonemap::config::Create();
     config.exposure = RENODX_TONE_MAP_EXPOSURE;
@@ -52,7 +54,9 @@ float4 main(float4 vpos: SV_POSITION, float2 uv: TEXCOORD0)
 
     SV_Target.rgb = applyRenoFrostbite(SV_Target.rgb);
 
+    SV_Target.rgb = renodx::color::bt709::from::AP1(SV_Target.rgb);
     SV_Target.rgb = renodx::color::correct::Hue(SV_Target.rgb, saturate(SV_Target.rgb), RENODX_TONE_MAP_HUE_SHIFT, RENODX_TONE_MAP_WORKING_COLOR_SPACE);
+    SV_Target.rgb = renodx::color::ap1::from::BT709(SV_Target.rgb);
   } else {
     SV_Target.rgb = saturate(SV_Target.rgb);
   }
