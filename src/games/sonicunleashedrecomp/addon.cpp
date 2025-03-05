@@ -118,7 +118,7 @@ renodx::utils::settings::Settings settings = {
     new renodx::utils::settings::Setting{
         .key = "ToneMapHueShift",
         .binding = &RENODX_TONE_MAP_HUE_SHIFT,
-        .default_value = 50.f,
+        .default_value = 75.f,
         .label = "Hue Shift",
         .section = "Tone Mapping",
         .tooltip = "Hue-shift emulation strength.",
