@@ -37,6 +37,8 @@ namespace renodx::utils::shader {
 
 static bool use_replace_on_bind = true;
 static bool use_replace_async = false;
+static bool use_shader_cache = false;
+static bool initialized_device = false;
 static std::atomic_size_t runtime_replacement_count = 0;
 
 static bool is_primary_hook = false;
@@ -172,13 +174,24 @@ struct PipelineShaderDetails {
               replacement_subobjects = renodx::utils::pipeline::ClonePipelineSubObjects(subobjects, subobject_count);
             }
 #ifdef DEBUG_LEVEL_0
-            std::stringstream s;
-            s << "utils::shader::BuildReplacementPipeline(Replacing ";
-            s << PRINT_CRC32(shader_hash);
-            s << ")";
-            reshade::log::message(reshade::log::level::debug, s.str().c_str());
+            {
+              std::stringstream s;
+              s << "utils::shader::BuildReplacementPipeline(Replacing ";
+              s << PRINT_CRC32(shader_hash);
+              s << ")";
+              reshade::log::message(reshade::log::level::debug, s.str().c_str());
+            }
 #endif
             AddShaderReplacement(&replacement_subobjects[i], new_shader);
+#ifdef DEBUG_LEVEL_0
+            {
+              std::stringstream s;
+              s << "utils::shader::BuildReplacementPipeline(Added replacement ";
+              s << PRINT_CRC32(shader_hash);
+              s << ")";
+              reshade::log::message(reshade::log::level::debug, s.str().c_str());
+            }
+#endif
 
             this->replacement_stages |= stage;
           }
@@ -193,15 +206,17 @@ struct PipelineShaderDetails {
       });
       this->compatible_shader_infos[shader_type_index] = this->subobject_shaders.back();
 
-#ifdef DEBUG_LEVEL_1
-      std::stringstream s;
-      s << "utils::shader::PipelineShaderDetails(Storing ";
-      s << PRINT_CRC32(shader_hash);
-      s << ", index: " << i;
-      s << ", type: " << subobject.type;
-      s << ", stage: " << stage;
-      s << ")";
-      reshade::log::message(reshade::log::level::debug, s.str().c_str());
+#ifdef DEBUG_LEVEL_0
+      {
+        std::stringstream s;
+        s << "utils::shader::PipelineShaderDetails(Storing ";
+        s << PRINT_CRC32(shader_hash);
+        s << ", index: " << i;
+        s << ", type: " << subobject.type;
+        s << ", stage: " << stage;
+        s << ")";
+        reshade::log::message(reshade::log::level::debug, s.str().c_str());
+      }
 #endif
     }
 
@@ -218,6 +233,16 @@ struct PipelineShaderDetails {
           subobject_count,
           replacement_subobjects,
           &new_pipeline);
+
+#ifdef DEBUG_LEVEL_0
+      {
+        std::stringstream s;
+        s << "utils::shader::BuildReplacementPipeline(Added replacement pipeline";
+        s << PRINT_PTR(new_pipeline.handle);
+        s << ")";
+        reshade::log::message(reshade::log::level::debug, s.str().c_str());
+      }
+#endif
       renodx::utils::pipeline::DestroyPipelineSubobjects(replacement_subobjects, subobject_count);
 
       if (built_pipeline_ok) {
@@ -260,6 +285,7 @@ struct __declspec(uuid("908f0889-64d8-4e22-bd26-ded3dd0cef77")) DeviceData {
   std::unordered_map<uint32_t, uint32_t> shader_replacements_inverse;  // New => Old
   bool use_replace_on_bind = true;
   bool use_replace_async = false;
+  bool use_shader_cache = false;
 };
 
 struct StageState {
@@ -387,11 +413,13 @@ static bool BuildReplacementPipeline(PipelineShaderDetails* details) {
     }
     auto& subobject = replacement_subobjects[info.index];
 #ifdef DEBUG_LEVEL_0
-    std::stringstream s;
-    s << "utils::shader::BuildReplacementPipeline(Replacing ";
-    s << PRINT_CRC32(info.shader_hash);
-    s << ")";
-    reshade::log::message(reshade::log::level::debug, s.str().c_str());
+    {
+      std::stringstream s;
+      s << "utils::shader::BuildReplacementPipeline(Replacing ";
+      s << PRINT_CRC32(info.shader_hash);
+      s << ")";
+      reshade::log::message(reshade::log::level::debug, s.str().c_str());
+    }
 #endif
     AddShaderReplacement(&subobject, new_shader);
     details->replacement_stages |= info.stage;
@@ -411,6 +439,17 @@ static bool BuildReplacementPipeline(PipelineShaderDetails* details) {
         subobject_count,
         replacement_subobjects,
         &new_pipeline);
+#ifdef DEBUG_LEVEL_0
+    {
+      std::stringstream s;
+      s << "utils::shader::BuildReplacementPipeline(New pipeline ";
+      s << PRINT_PTR(new_pipeline.handle);
+      s << " on layout ";
+      s << PRINT_PTR(layout.handle);
+      s << ")";
+      reshade::log::message(reshade::log::level::debug, s.str().c_str());
+    }
+#endif
     renodx::utils::pipeline::DestroyPipelineSubobjects(replacement_subobjects, subobject_count);
     if (built_pipeline_ok) {
       details->replacement_pipeline = new_pipeline;
@@ -618,6 +657,14 @@ static void OnInitDevice(reshade::api::device* device) {
     use_replace_async = data->use_replace_async;
   }
 
+  if (use_shader_cache) {
+    // write
+    data->use_shader_cache = true;
+  } else {
+    // read
+    use_shader_cache = data->use_shader_cache;
+  }
+
   auto insert_shaders = [](
                             const std::unordered_map<uint32_t, std::vector<uint8_t>>& source,
                             std::unordered_map<uint32_t, std::vector<uint8_t>>& dest,
@@ -691,7 +738,7 @@ static void OnResetCommandList(reshade::api::command_list* cmd_list) {
 
 static void OnDestroyCommandList(reshade::api::command_list* cmd_list) {
   if (!is_primary_hook) return;
-  cmd_list->destroy_private_data<CommandListData>();
+  renodx::utils::data::Delete<CommandListData>(cmd_list);
 }
 
 static bool OnCreatePipeline(
@@ -700,8 +747,16 @@ static bool OnCreatePipeline(
     uint32_t subobject_count,
     const reshade::api::pipeline_subobject* subobjects) {
   if (!is_primary_hook) return false;
-  if (use_replace_async) return false;
+  if (initialized_device) {
+    if (use_replace_async) return false;
+  }
   auto* data = renodx::utils::data::Get<DeviceData>(device);
+
+  if (!initialized_device) {
+    use_replace_async = data->use_replace_async;
+    use_shader_cache = data->use_shader_cache;
+    initialized_device = true;
+  }
   std::vector<std::pair<uint32_t, uint32_t>> hash_changes;
 
   {
@@ -786,18 +841,22 @@ static void OnInitPipeline(
   bool has_useful_details = !details.subobject_shaders.empty();
   if (!has_useful_details) return;
 
-  reshade::api::pipeline_subobject* subobjects_clone = renodx::utils::pipeline::ClonePipelineSubObjects(subobjects, subobject_count);
+  if (data->use_replace_async || data->use_shader_cache) {
+    reshade::api::pipeline_subobject* subobjects_clone = renodx::utils::pipeline::ClonePipelineSubObjects(subobjects, subobject_count);
 
-  // Store clone of subobjects
-  details.subobjects = std::vector<reshade::api::pipeline_subobject>(
-      subobjects_clone,
-      subobjects_clone + subobject_count);
+    // Store clone of subobjects
+    details.subobjects.assign(
+        subobjects_clone,
+        subobjects_clone + subobject_count);
+
+    free(subobjects_clone);
+  }
 
   {
     const std::unique_lock write_lock(store->pipeline_shader_details_mutex);
     store->pipeline_shader_details[pipeline.handle] = details;
 
-    if (use_replace_async) {
+    if (data->use_replace_async) {
       for (const auto shader_hash : details.shader_hashes) {
         if (auto pair = data->shader_pipeline_handles.find(shader_hash);
             pair != data->shader_pipeline_handles.end()) {
@@ -818,22 +877,26 @@ static void OnDestroyPipeline(
 
   // Prefer read-only and orphaning data
 
-  auto* details = GetPipelineShaderDetails(pipeline);
-
-  if (details == nullptr) {
-    // assert(details_pair != pipeline_shader_details.end());
-    return;
-  }
-
-  // pipeline_shader_details.erase(details_pair);
-  details->destroyed = true;
-
-  if (details->replacement_pipeline.handle != 0u) {
-    device->destroy_pipeline(details->replacement_pipeline);
-    details->replacement_pipeline = {0u};
-  }
-  if (!use_replace_async) {
+  if (use_replace_async || use_shader_cache) {
+    std::shared_lock read_lock(store->pipeline_shader_details_mutex);
+    auto details_pair = store->pipeline_shader_details.find(pipeline.handle);
+    if (details_pair == store->pipeline_shader_details.end()) return;
+    auto* details = &details_pair->second;
+    details->destroyed = true;
+    if (details->replacement_pipeline.handle != 0u) {
+      device->destroy_pipeline(details->replacement_pipeline);
+      details->replacement_pipeline = {0u};
+    }
+  } else {
+    std::unique_lock write_lock(store->pipeline_shader_details_mutex);
+    auto details_pair = store->pipeline_shader_details.find(pipeline.handle);
+    if (details_pair == store->pipeline_shader_details.end()) return;
+    auto* details = &details_pair->second;
+    if (details->replacement_pipeline.handle != 0u) {
+      device->destroy_pipeline(details->replacement_pipeline);
+    }
     renodx::utils::pipeline::DestroyPipelineSubobjects(details->subobjects);
+    store->pipeline_shader_details.erase(details_pair);
   }
 }
 

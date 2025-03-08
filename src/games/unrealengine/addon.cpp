@@ -79,6 +79,9 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     TracedDualShaderEntry(0x9081A2D8),
     TracedDualShaderEntry(0xE6B4B2E3),
 
+    // GTA: San Andreas
+    TracedDualShaderEntry(0xB864B3B8),
+
     // SM5 LUT Builder
     TracedDualShaderEntry(0x1DF6036B),
     TracedDualShaderEntry(0x20EAC9B6),
@@ -136,6 +139,7 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     TracedShaderEntry(0x8119F75A),
     TracedShaderEntry(0xE3BB0C03),
     TracedShaderEntry(0x95B1E481),
+    TracedShaderEntry(0x49D6D8F2),
 
 };
 
@@ -595,7 +599,6 @@ bool OnDrawForLUTDump(
         reshade::api::pipeline_subobject_type::pixel_shader,
         "lutbuilder_");
 
-    if (!found) throw std::exception("Pipeline not found");
   } catch (...) {
     std::stringstream s;
     s << "utils::shader::dump(Failed to decode shader data: ";
@@ -842,6 +845,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       if (g_dump_shaders != 0.f) {
         renodx::utils::swapchain::Use(fdw_reason);
         renodx::utils::shader::Use(fdw_reason);
+        renodx::utils::shader::use_shader_cache = true;
         renodx::utils::resource::Use(fdw_reason);
         reshade::register_event<reshade::addon_event::draw>(OnDrawForLUTDump);
       }
