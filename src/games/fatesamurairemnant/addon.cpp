@@ -87,7 +87,7 @@ renodx::utils::settings::Settings settings = {
         .key = "ToneMapHueProcessor",
         .binding = &RENODX_TONE_MAP_HUE_PROCESSOR,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,
-        .default_value = 1.f,
+        .default_value = 0.f,
         .label = "Hue Processor",
         .section = "Tone Mapping",
         .tooltip = "Selects hue processor",
@@ -134,8 +134,7 @@ renodx::utils::settings::Settings settings = {
     //},
     new renodx::utils::settings::Setting{
         .key = "GammaCorrection",
-        //.binding = &RENODX_GAMMA_CORRECTION,
-        .binding = &RENODX_SWAP_CHAIN_GAMMA_CORRECTION,
+        .binding = &RENODX_GAMMA_CORRECTION,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,
         .default_value = 1.f,
         .label = "Gamma Correction",
@@ -277,9 +276,9 @@ renodx::utils::settings::Settings settings = {
             renodx::utils::settings::UpdateSetting("ToneMapHueProcessor", 0.f);
             renodx::utils::settings::UpdateSetting("ToneMapWorkingColorSpace", 0.f);
             renodx::utils::settings::UpdateSetting("GammaCorrection", 1.f);
-            renodx::utils::settings::UpdateSetting("ToneMapScaling", 1.f);
+            renodx::utils::settings::UpdateSetting("ToneMapScaling", 0.f);
             renodx::utils::settings::UpdateSetting("ColorGradeExposure", 1.f);
-            renodx::utils::settings::UpdateSetting("ColorGradeHighlights", 60.f);
+            renodx::utils::settings::UpdateSetting("ColorGradeHighlights", 55.f);
             renodx::utils::settings::UpdateSetting("ColorGradeShadows", 55.f);
             renodx::utils::settings::UpdateSetting("ColorGradeContrast", 60.f);
             renodx::utils::settings::UpdateSetting("ColorGradeSaturation", 50.f);
