@@ -391,10 +391,11 @@ void main(
   o0.w = 1;
 
   if (RENODX_TONE_MAP_TYPE != 0.f) {
+    o0.rgb *= 2.f;  // arbitrary value, seems to match sdr
+    o0.rgb = renodx::tonemap::renodrt::NeutralSDR(o0.rgb);
     o0.rgb = renodx::draw::ToneMapPass(untonemapped, o0.rgb);
+    o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
   }
-
-  o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
   
   return;
 }

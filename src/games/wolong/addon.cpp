@@ -21,7 +21,7 @@ namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0xC7E09074), // lutsample
-    CustomShaderEntry(0x8C3DC6EE), // lutsample (maybe not even used here)
+    CustomShaderEntry(0x8C3DC6EE), // lutsample (cave)
     CustomShaderEntry(0xC9F72BAF), // output
     CustomShaderEntry(0x528D50D7), // post process
 };
@@ -89,7 +89,7 @@ renodx::utils::settings::Settings settings = {
         .key = "ToneMapHueProcessor",
         .binding = &RENODX_TONE_MAP_HUE_PROCESSOR,
         .value_type = renodx::utils::settings::SettingValueType::INTEGER,
-        .default_value = 1.f,
+        .default_value = 0.f,
         .label = "Hue Processor",
         .section = "Tone Mapping",
         .tooltip = "Selects hue processor",
