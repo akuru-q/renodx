@@ -85,6 +85,7 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     // SM5 LUT Builder
     TracedDualShaderEntry(0x1DF6036B),
     TracedDualShaderEntry(0x20EAC9B6),
+    TracedDualShaderEntry(0x2A94C68A),
     TracedDualShaderEntry(0x2569985B),
     TracedDualShaderEntry(0x3040FD90),
     TracedDualShaderEntry(0x31FE4421),
@@ -119,6 +120,8 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     TracedDualShaderEntry(0x97BAC8AF),
     TracedDualShaderEntry(0x2F460105),
     TracedDualShaderEntry(0x5BD6A5C2),
+    TracedDualShaderEntry(0x85DEEF21),
+    TracedDualShaderEntry(0xF5AC79AB),
 
     // SM6 LUT Builder
 
@@ -140,6 +143,8 @@ renodx::mods::shader::CustomShaders custom_shaders = {
     TracedShaderEntry(0xE3BB0C03),
     TracedShaderEntry(0x95B1E481),
     TracedShaderEntry(0x49D6D8F2),
+    TracedShaderEntry(0x06F39D1E),
+    TracedShaderEntry(0xDA10C03E),
 
 };
 
