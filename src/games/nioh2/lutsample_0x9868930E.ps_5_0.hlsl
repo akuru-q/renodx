@@ -210,9 +210,8 @@ void main(
 
   if (RENODX_TONE_MAP_TYPE != 0.f) {
     o0.rgb = renodx::draw::ToneMapPass(untonemapped, renodx::tonemap::renodrt::NeutralSDR(o0.rgb));
+    o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
   }
-
-  o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
 
   return;
 }
