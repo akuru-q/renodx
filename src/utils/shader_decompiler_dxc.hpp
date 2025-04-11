@@ -771,7 +771,11 @@ class Decompiler {
         for (const auto& description : resource_descriptions) {
           if (description.hlsl_binding == hlsl_bind) {
             if (description.name.empty()) {
-              this->name = description.id;
+              if (space == 0u) {
+                this->name = std::format("{}{}", prefix, signature_index);
+              } else {
+                this->name = std::format("{}{}_space{}", prefix, signature_index, space);
+              }
               std::transform(this->name.begin(), this->name.end(), this->name.begin(),
                              [](unsigned char c) { return std::tolower(c); });
             } else {
@@ -1501,7 +1505,7 @@ class Decompiler {
             is_function = IsWrapped(functionlike);
           }
 
-          static constexpr const auto* SAFE_CHARACTERS = "012345789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_.";
+          static constexpr const auto* SAFE_CHARACTERS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_.";
           // static constexpr const auto *UNSAFE_CHARACTERS = " *+-/&^|";
           bool needs_wrap = !is_function && alias_value.find_first_not_of(SAFE_CHARACTERS) != std::string_view::npos;
           auto new_value = (expected_type != alias_type)
@@ -2678,9 +2682,9 @@ class Decompiler {
         auto [from_type, a, to_type] = StringViewMatch<3>(assignment, std::regex{R"(zext (?:fast )?(\S+) (\S+) to (\S+))"});
         assignment_type = ParseType(to_type);
         if (from_type == "i16") {
-          assignment_value = std::format("(min16uint){}", ParseWrapped(ParseInt(a)));
+          assignment_value = std::format("({})(min16uint){}", assignment_type, ParseWrapped(ParseInt(a)));
         } else {
-          assignment_value = std::format("(uint){}", ParseWrapped(ParseInt(a)));
+          assignment_value = std::format("({})(uint){}", assignment_type, ParseWrapped(ParseInt(a)));
         }
       } else if (instruction == "sitofp") {
         // sitofp i32 %47 to float
@@ -4044,7 +4048,7 @@ class Decompiler {
             item_offset = optional_offset.value();
             offset = item_offset;
           }
-          string_stream << std::format(" : packoffset(c{:03}.{}); //  Offset: {: 4}\n", item_offset / 16, VECTOR_INDEXES[item_offset % 16 / 4], item_offset);
+          string_stream << std::format(" : packoffset(c{:03}.{});\n", item_offset / 16, VECTOR_INDEXES[item_offset % 16 / 4], item_offset);
           offset += preprocess_state.GetTypeSize(info);
         }
       } else {

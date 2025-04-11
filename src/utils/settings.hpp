@@ -50,7 +50,7 @@ enum class SettingValueType : uint8_t {
 
 struct Setting {
   std::string key;
-  float* binding;
+  float* binding = nullptr;
   SettingValueType value_type = SettingValueType::FLOAT;
   float default_value = 0.f;
   bool can_reset = true;
@@ -72,6 +72,8 @@ struct Setting {
   };
 
   void (*on_change)() = [] {};
+
+  void (*on_change_value)(float previous, float current) = [](float previous, float current) {};
 
   // Return true if value is changed
   bool (*on_draw)() = [] { return false; };
@@ -163,11 +165,12 @@ static bool UpdateSetting(const std::string& key, float value) {
 }
 
 static void ResetSettings(bool reset_global = false) {
+  const std::unique_lock lock(renodx::utils::mutex::global_mutex);
   for (auto* setting : *settings) {
     if (setting->key.empty()) continue;
     if (setting->is_global && !reset_global) continue;
     if (!setting->can_reset) continue;
-    renodx::utils::settings::UpdateSetting(setting->key, setting->default_value);
+    setting->Set(setting->default_value)->Write();
   }
 }
 
@@ -394,7 +397,7 @@ static void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
         ImGui::BeginDisabled();
       }
       bool changed = false;
-
+      float previous_value = setting->GetValue();
       ImGui::PushID(("##Key" + (setting->key.empty() ? setting->label : setting->key)).c_str());
       switch (setting->value_type) {
         case SettingValueType::FLOAT:
@@ -428,7 +431,10 @@ static void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
               ImGuiSliderFlags_NoInput);
           break;
         case SettingValueType::BUTTON:
-          changed |= ImGui::Button(setting->label.c_str());
+          if (ImGui::Button(setting->label.c_str())) {
+            // Internal change firing
+            setting->on_change();
+          }
           break;
         case SettingValueType::LABEL:
           ImGui::LabelText(setting->label.c_str(), "%s", setting->labels[0].c_str());
@@ -498,6 +504,7 @@ static void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
         const std::unique_lock lock(renodx::utils::mutex::global_mutex);
         setting->Write();
         any_change = true;
+        setting->on_change_value(previous_value, setting->GetValue());
       }
       if (is_disabled) {
         ImGui::EndDisabled();
