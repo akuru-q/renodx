@@ -23,6 +23,7 @@ struct ShaderInjectData {
   float fxFxaa;
   float blend;
   float clipPeak;
+  float toneMapPerChannel;
   //float debugVanillaMidGrey;
 };
 

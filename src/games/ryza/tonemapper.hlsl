@@ -39,6 +39,9 @@ float3 applyUserTonemap(float3 untonemapped, float3 vanillaColor, float midGray)
     config.shadows = injectedData.colorGradeShadows;
     config.contrast = injectedData.colorGradeContrast;
     config.saturation = injectedData.colorGradeSaturation;
+
+    config.reno_drt_per_channel = injectedData.toneMapPerChannel;
+    config.reno_drt_tone_map_method = renodx::tonemap::renodrt::config::tone_map_method::REINHARD;
     
     config.reno_drt_highlights = renoDRTHighlights;
     config.reno_drt_shadows = renoDRTShadows;
