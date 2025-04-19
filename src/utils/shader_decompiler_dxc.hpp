@@ -19,6 +19,7 @@
 #include <map>
 #include <optional>
 #include <ostream>
+#include <ranges>
 #include <regex>
 #include <set>
 #include <span>
@@ -179,6 +180,18 @@ inline TokenizerState& operator++(TokenizerState& state, int) {
   state = static_cast<TokenizerState>(static_cast<uint32_t>(state) + 1);
   return state;
 }
+
+struct Metadata {
+  static std::string_view ParseString(std::string_view s) {
+    static const std::regex METADATA_STRING_REGEX = std::regex("^!\"(.*)\"$");
+    return StringViewMatch(s, METADATA_STRING_REGEX);
+  }
+
+  static std::array<std::string_view, 2> ParseKeyValue(std::string_view s) {
+    static const std::regex METADATA_KEY_VALUE_REGEX = std::regex(R"(^(.*) (\S+)$)");
+    return StringViewMatch<2>(s, METADATA_KEY_VALUE_REGEX);
+  }
+};
 
 class Decompiler {
   constexpr static const auto VECTOR_INDEXES = "xyzw";
@@ -368,6 +381,15 @@ class Decompiler {
         optimized = std::format("{}(lerp({}, {}, {})){}", prefix, a, b, t, suffix);
       }
     }
+    {
+      // "((b - a) * t) + a"
+      static const auto LERP_REGEX_1 = std::regex(R"(^\(\(((?:_\d+)|[a-zA-z._0-9]+|(?:\d+u?\.?\d+?f?)) - ((?:_\d+)|[a-zA-z._0-9]+|(?:\d+u?\.?\d+?f?))\) \* ((?:_\d+)|[a-zA-z._0-9]+|(?:\d+u?\.?\d+?f?))\) \+ ((?:_\d+)|[a-zA-z._0-9]+|(?:\d+u?\.?\d+?f?))$)");
+      const auto [b, a, t, a2] = StringViewMatch<4>(optimized, LERP_REGEX_1);
+      if (!b.empty() && !a.empty() && !t.empty() && !a2.empty()) {
+        optimized = std::format("(lerp({}, {}, {}))", a, b, t);
+      }
+    }
+
     {
       // exp2(log2(base) * exp)
       static const auto LERP_REGEX_1 = std::regex(R"(^.*exp2\(log2\(((?:_\d+)|[a-zA-z._0-9]+|(?:\d+u?\.?\d+?f?))\) \* ((?:_\d+)|[a-zA-z._0-9]+|(?:\d+u?\.?\d+?f?))\).*$)");
@@ -639,18 +661,6 @@ class Decompiler {
       auto [bufferType, name] = StringViewMatch<2>(line, regex);
       this->buffer_type = BufferTypeFromString(bufferType);
       this->name = name;
-    }
-  };
-
-  struct Metadata {
-    static std::string_view ParseString(std::string_view s) {
-      static const std::regex METADATA_STRING_REGEX = std::regex("^!\"(.*)\"$");
-      return StringViewMatch(s, METADATA_STRING_REGEX);
-    }
-
-    static std::array<std::string_view, 2> ParseKeyValue(std::string_view s) {
-      static const std::regex METADATA_KEY_VALUE_REGEX = std::regex(R"(^(.*) (\S+)$)");
-      return StringViewMatch<2>(s, METADATA_KEY_VALUE_REGEX);
     }
   };
 
@@ -1045,24 +1055,31 @@ class Decompiler {
   };
 
   struct DataType {
-    size_t array_size;
     size_t vector_size;
+    std::vector<size_t> array_sizes;  // in C++ dereferencing order
     std::string data_type;
 
     static std::string FixBaseType(std::string_view data_type) {
+      assert(!data_type.empty());
       if (data_type == "i32") return "int";
       if (data_type == "unsigned int") return "uint";
       return std::string(data_type);
     }
 
     explicit DataType(std::string_view line) {
-      static auto regex = std::regex{R"(^(?:\[(\S+) x )?(?:<(\S+) x )?([^*>\]]+)(\*)?>?\]?$)"};
-      const auto [array_size, vector_size, data_type, is_pointer] = StringViewMatch<4>(line, regex);
-      if (array_size.empty()) {
-        this->array_size = 0;
-      } else {
-        FromStringView(array_size, this->array_size);
+      static auto regex = std::regex{R"(^(?:\[(\S+) x )?(?:\[(\S+) x )?(?:<(\S+) x )?([^*>\]]+)(\*)?>?\]?\]?$)"};
+      const auto [array_size_a, array_size_b, vector_size, data_type, is_pointer] = StringViewMatch<5>(line, regex);
+      if (!array_size_a.empty()) {
+        if (array_size_b.empty()) {
+          array_sizes.resize(1);
+          FromStringView(array_size_a, array_sizes[0]);
+        } else {
+          array_sizes.resize(2);
+          FromStringView(array_size_a, array_sizes[1]);
+          FromStringView(array_size_b, array_sizes[0]);
+        }
       }
+
       if (vector_size.empty()) {
         this->vector_size = 0;
       } else {
@@ -1150,8 +1167,8 @@ class Decompiler {
       if (data_type.vector_size > 1) {
         data_type_size *= data_type.vector_size;
       }
-      if (data_type.array_size > 1) {
-        data_type_size *= data_type.array_size;
+      for (auto array_size : data_type.array_sizes) {
+        data_type_size *= array_size;
       }
       assert(data_type_size != 0);
       return data_type_size;
@@ -1173,12 +1190,19 @@ class Decompiler {
       }
 
       uint32_t inner_offset = offset;
-      uint32_t array_index = 0;
       std::string value;
-      if (info.array_size != 0) {
-        array_index = offset / data_type_size;
-        inner_offset = offset % data_type_size;
-        value = std::format("[{}]", array_index);
+
+      // array_sizes in C++ dereferencing order
+      for (auto it = info.array_sizes.begin(); it != info.array_sizes.end(); ++it) {
+        size_t array_data_size = data_type_size;
+        for (auto it2 = it + 1; it2 != info.array_sizes.end(); ++it2) {
+          // Increase by next array sizes;
+          array_data_size *= *it2;
+        }
+
+        size_t array_index = inner_offset / array_data_size;
+        value += std::format("[{}]", array_index);
+        inner_offset = inner_offset % array_data_size;
       }
 
       if (info.data_type.starts_with("%class")) {
@@ -1318,6 +1342,9 @@ class Decompiler {
           if (depth != 0) continue;
           if (line_declaration.starts_with("struct ")) {
             std::string definition = std::string("%") + std::string(line_declaration.substr(7));
+            if (definition == "%$Globals") {
+              definition = "%\"$Globals\"";
+            }
             auto pair = this->type_definitions.find(definition);
             assert(pair != this->type_definitions.end());
             type_definition = &pair->second;
@@ -1966,12 +1993,17 @@ class Decompiler {
             // decompiled = std::format("{} _{} = {}.Sample({}, {}, {});", srv_resource.data_type, variable, srv_name, sampler_name, coords, offset);
           }
         } else if (functionName == "@dx.op.sampleLevel.f32") {
+          // %427 = call %dx.types.ResRet.f32 @dx.op.sampleLevel.f32(i32 62, %dx.types.Handle %3, %dx.types.Handle %7, float %384, float %385, float %426, float undef, i32 undef, i32 undef, i32 undef, float 0.000000e+00)  ; SampleLevel(srv,sampler,coord0,coord1,coord2,coord3,offset0,offset1,offset2,LOD)
+          // %427 = i32 62, %dx.types.Handle %3, %dx.types.Handle %7,
+          // float %384, float %385, float %426, float undef,
+          // i32 undef, i32 undef, i32 undef, float 0.000000e+00)  ; SampleLevel(srv,sampler,coord0,coord1,coord2,coord3,offset0,offset1,offset2,LOD)
           auto [opNumber, srv, sampler, coord0, coord1, coord2, coord3, offset0, offset1, offset2, LOD] = StringViewSplit<11>(functionParamsString, param_regex, 2);
           auto ref_resource = std::string{srv.substr(1)};
           auto ref_sampler = std::string{sampler.substr(1)};
 
           const bool has_coord_z = coord2 != "undef";
           const bool has_coord_w = coord3 != "undef";
+          const bool has_offset_x = offset0 != "undef";
           const bool has_offset_y = offset1 != "undef";
           const bool has_offset_z = offset2 != "undef";
           std::string coords;
@@ -1985,9 +2017,9 @@ class Decompiler {
           std::string offset;
           if (has_offset_z) {
             offset = std::format("int3({}, {}, {})", ParseInt(offset0), ParseInt(offset1), ParseInt(offset2));
-          } else if (has_coord_z) {
+          } else if (has_offset_y) {
             offset = std::format("int2({}, {})", ParseInt(offset0), ParseInt(offset1));
-          } else {
+          } else if (has_offset_x) {
             offset = std::format("{}", ParseInt(offset0));
           }
 
@@ -1996,7 +2028,7 @@ class Decompiler {
           auto [sampler_name, sampler_range_index, sampler_resource_class] = preprocess_state.resource_binding_variables.at(ref_sampler);
           auto sampler_resource = preprocess_state.sampler_resources[sampler_range_index];
           assignment_type = srv_resource.data_type;
-          if (offset == "0" || offset == "int2(0, 0)" || offset == "int3(0, 0, 0)") {
+          if (offset == "" || offset == "0" || offset == "int2(0, 0)" || offset == "int3(0, 0, 0)") {
             assignment_value = std::format("{}.SampleLevel({}, {}, {})", srv_name,
                                            sampler_name, coords, ParseFloat(LOD));
             // decompiled = std::format("{} _{} = {}.SampleLevel({}, {}, {});", srv_resource.data_type, variable, srv_name, sampler_name, coords, ParseFloat(LOD));
@@ -3097,6 +3129,8 @@ class Decompiler {
           this->AddCodeSwitch(line, preprocess_state, it);
         } else if (line.empty()) {
           //
+        } else if (line == "entry:") {
+          // noop
         } else if (line.starts_with("; <label>:")) {
           this->ParseBlockDefinition(line);
         } else {
@@ -3758,7 +3792,7 @@ class Decompiler {
         CodeFunction replacement_code_function;
         replacement_code_function.threads = current_code_function->threads;
         replacement_code_function.return_type = current_code_function->return_type;
-        replacement_code_function.name = current_code_function->return_type;
+        replacement_code_function.name = current_code_function->name;
         replacement_code_function.parameters = current_code_function->parameters;
         replacement_code_function.lines = current_code_function->lines;
         replacement_code_function.single_use_variables = current_code_function->single_use_variables;
@@ -3870,9 +3904,10 @@ class Decompiler {
           string_stream << " " << name;
         }
 
-        if (info.array_size != 0) {
-          string_stream << "[" << info.array_size << "]";
+        for (const auto& array_size : info.array_sizes) {
+          string_stream << "[" << array_size << "]";
         }
+
         string_stream << ";\n";
       }
       unindent_spacing();
@@ -4039,8 +4074,9 @@ class Decompiler {
           } else {
             assert(false);
           }
-          if (info.array_size != 0) {
-            string_stream << "[" << info.array_size << "]";
+
+          for (const auto& array_size : info.array_sizes) {
+            string_stream << "[" << array_size << "]";
           };
 
           auto item_offset = offset;

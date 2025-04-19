@@ -24,6 +24,7 @@
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <span>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -47,6 +48,7 @@
 #include "../utils/shader_compiler_watcher.hpp"
 #include "../utils/shader_decompiler_dxc.hpp"
 #include "../utils/shader_dump.hpp"
+#include "../utils/string_view.hpp"
 #include "../utils/swapchain.hpp"
 #include "../utils/trace.hpp"
 
@@ -69,19 +71,30 @@
 namespace {
 
 reshade::api::device* snapshot_device = nullptr;
+reshade::api::device* snapshot_queued_device = nullptr;
 
 std::atomic_bool snapshot_pane_show_vertex_shaders = true;
 std::atomic_bool snapshot_pane_show_pixel_shaders = true;
 std::atomic_bool snapshot_pane_show_compute_shaders = true;
 std::atomic_bool snapshot_pane_show_blends = true;
-std::atomic_bool snapshot_pane_expand_all_nodes = false;
-
+std::atomic_bool snapshot_pane_expand_all_nodes = true;
+std::atomic_bool snapshot_pane_filter_resources_by_shader_use = true;
 std::atomic_bool shaders_pane_show_vertex_shaders = true;
 std::atomic_bool shaders_pane_show_pixel_shaders = true;
 std::atomic_bool shaders_pane_show_compute_shaders = true;
 
 uint32_t skip_draw_count = 0;
 std::atomic_uint32_t device_data_index = 0;
+
+struct ResourceBind {
+  enum class BindType : std::uint8_t {
+    SRV = 0,
+    UAV = 1,
+    CBV = 2,
+  } type = BindType::SRV;
+  uint32_t slot = 0;
+  uint32_t space = 0;
+};
 
 struct ShaderDetails {
   uint32_t shader_hash;
@@ -92,6 +105,9 @@ struct ShaderDetails {
   std::vector<uint8_t> addon_shader;
   std::optional<renodx::utils::shader::compiler::watcher::CustomShader> disk_shader = std::nullopt;
   reshade::api::pipeline_stage shader_type = static_cast<reshade::api::pipeline_stage>(0);
+  std::optional<std::vector<ResourceBind>> resource_binds = std::nullopt;
+  std::string entrypoint;
+
   bool bypass_draw = false;
 
   enum class ShaderSource : std::uint8_t {
@@ -157,18 +173,40 @@ struct PipelineBindDetails {
 };
 
 struct DrawDetails {
-  std::map<std::pair<uint32_t, uint32_t>, ResourceViewDetails> srv_binds;
-  std::map<std::pair<uint32_t, uint32_t>, ResourceViewDetails> uav_binds;
-  std::map<std::pair<uint32_t, uint32_t>, reshade::api::buffer_range> constants;
-  std::map<uint32_t, ResourceViewDetails> render_targets;
-  std::vector<PipelineBindDetails> pipeline_binds;
   enum class DrawMethods : std::uint8_t {
     PRESENT,
     DRAW,
     DRAW_INDEXED,
     DRAW_INDEXED_OR_INDIRECT,
-    DISPATCH
+    DISPATCH,
+    COPY
   } draw_method;
+
+  std::chrono::time_point<std::chrono::system_clock> timestamp;
+  std::map<std::pair<uint32_t, uint32_t>, ResourceViewDetails> srv_binds;
+  std::map<std::pair<uint32_t, uint32_t>, ResourceViewDetails> uav_binds;
+  std::map<std::pair<uint32_t, uint32_t>, reshade::api::buffer_range> constants;
+  std::map<uint32_t, ResourceViewDetails> render_targets;
+  std::vector<PipelineBindDetails> pipeline_binds;
+  std::optional<reshade::api::blend_desc> blend_desc = std::nullopt;
+  std::optional<reshade::api::rasterizer_desc> rasterizer_desc = std::nullopt;
+  std::optional<std::vector<ResourceBind>> resource_binds = std::nullopt;
+
+  reshade::api::resource copy_source = {0u};
+  reshade::api::resource copy_destination = {0u};
+
+  [[nodiscard]] bool IsDraw() const {
+    switch (draw_method) {
+      case DrawMethods::DRAW:                     return true;
+      case DrawMethods::DRAW_INDEXED:             return true;
+      case DrawMethods::DRAW_INDEXED_OR_INDIRECT: return true;
+      default:                                    return false;
+    }
+  };
+
+  [[nodiscard]] bool IsDispatch() const {
+    return draw_method == DrawMethods::DISPATCH;
+  };
 
   [[nodiscard]] std::string DrawMethodString() const {
     switch (draw_method) {
@@ -177,6 +215,7 @@ struct DrawDetails {
       case DrawMethods::DRAW_INDEXED:             return "DrawIndexed";
       case DrawMethods::DRAW_INDEXED_OR_INDIRECT: return "DrawIndirect";
       case DrawMethods::DISPATCH:                 return "Dispatch";
+      case DrawMethods::COPY:                     return "Copy";
       default:                                    return "Unknown";
     }
   }
@@ -190,6 +229,9 @@ struct __declspec(uuid("3224946b-5c5f-478a-8691-83fbb9f88f1b")) CommandListData 
   std::map<std::pair<uint32_t, uint32_t>, ResourceViewDetails> compute_uav_binds;
   std::map<std::pair<uint32_t, uint32_t>, reshade::api::buffer_range> constants;
   std::map<uint32_t, ResourceViewDetails> render_targets;
+  std::optional<reshade::api::blend_desc> blend_desc = std::nullopt;
+  std::optional<reshade::api::rasterizer_desc> rasterizer_desc = std::nullopt;
+
   // std::vector<PipelineBindDetails> pipeline_binds;
 };
 
@@ -197,17 +239,14 @@ struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
   reshade::api::device* device;
   std::unordered_map<uint32_t, ShaderDetails> shader_details;
   // std::vector<CommandListData> command_list_data;
-  std::vector<DrawDetails> draw_details;
+  std::vector<DrawDetails> draw_details_list;
   std::unordered_map<uint64_t, std::vector<reshade::api::pipeline_layout_param>> pipeline_layout_params;
   std::unordered_set<uint64_t> live_pipelines;
   std::unordered_map<uint64_t, reshade::api::resource_view> preview_srvs;
   std::shared_mutex mutex;
+  std::unordered_map<uint64_t, reshade::api::blend_desc> pipeline_blends;
 
   reshade::api::effect_runtime* runtime = nullptr;
-
-  void StartSnapshot() {
-    this->draw_details.clear();
-  }
 
   ShaderDetails* GetShaderDetails(uint32_t shader_hash) {
     // assert(shader_hash != 0u);
@@ -242,9 +281,12 @@ struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
       details.resource = resource_view_info->resource_info->resource;
       details.resource_desc = resource_view_info->resource_info->desc;
 
-      auto resource_reflection = renodx::utils::trace::GetDebugName(device_api, details.resource);
-      if (resource_reflection.has_value()) {
-        details.resource_reflection = resource_reflection.value();
+
+      if (!resource_view_info->destroyed) {
+        auto resource_reflection = renodx::utils::trace::GetDebugName(device_api, details.resource);
+        if (resource_reflection.has_value()) {
+          details.resource_reflection = resource_reflection.value();
+        }
       }
     }
 
@@ -255,6 +297,226 @@ struct __declspec(uuid("0190ec1a-2e19-74a6-ad41-4df0d4d8caed")) DeviceData {
     return details;
   }
 };
+
+bool ComputeDisassemblyForShaderDetails(reshade::api::device* device, DeviceData* data, ShaderDetails* shader_details) {
+  if (std::holds_alternative<std::nullopt_t>(shader_details->disassembly)) {
+    // Never disassembled
+    try {
+      if (shader_details->shader_data.empty()) {
+        reshade::api::pipeline pipeline = {0};
+        {
+          // Get pipeline handle
+          auto* shader_device_data = renodx::utils::shader::GetShaderDeviceData(device);
+          std::shared_lock lock(shader_device_data->mutex);
+          auto pair = shader_device_data->shader_pipeline_handles.find(shader_details->shader_hash);
+          if (pair == shader_device_data->shader_pipeline_handles.end()) {
+            throw std::exception("Shader data not found.");
+          }
+          auto& pipeline_handles = pair->second;
+          if (pipeline_handles.empty()) throw std::exception("Shader data not found.");
+          pipeline = {*(pipeline_handles.begin())};
+        }
+
+        auto shader_data = renodx::utils::shader::GetShaderData(pipeline, shader_details->shader_hash);
+        if (!shader_data.has_value()) throw std::exception("Invalid shader selection");
+        shader_details->shader_data = shader_data.value();
+      }
+      if (renodx::utils::device::IsDirectX(device)) {
+        shader_details->disassembly = renodx::utils::shader::compiler::directx::DisassembleShader(shader_details->shader_data);
+      } else if (device->get_api() == reshade::api::device_api::opengl) {
+        shader_details->disassembly = std::string(
+            shader_details->shader_data.data(),
+            shader_details->shader_data.data() + shader_details->shader_data.size());
+      } else {
+        throw std::exception("Unsupported device API.");
+      }
+    } catch (std::exception& e) {
+      shader_details->disassembly = e;
+    }
+  }
+
+  return std::holds_alternative<std::string>(shader_details->disassembly);
+}
+
+std::optional<std::vector<ResourceBind>> GetResourceBindsForShaderDetails(
+    reshade::api::device* device, DeviceData* data, ShaderDetails* shader_details) {
+  if (shader_details->resource_binds.has_value()) {
+    return shader_details->resource_binds;
+  }
+
+  bool ok = ComputeDisassemblyForShaderDetails(device, data, shader_details);
+  if (!ok) {
+    return shader_details->resource_binds;
+  }
+
+  // Read texture declarations from SM5 disassembly
+  if (shader_details->program_version.has_value()) {
+    shader_details->resource_binds = std::vector<ResourceBind>();
+
+    if (shader_details->program_version->GetMajor() <= 5) {
+      auto disassembly = std::get<std::string>(shader_details->disassembly);
+      auto source_lines = StringViewSplitAll(disassembly, '\n');
+
+      for (auto line : source_lines) {
+        static const auto REGEX = std::regex(R"(^.*dcl_(?:resource_\S+|uav_\S+|constantbuffer) (?:\([^)]+\) )?(T|t|U|u|cb|CB)(\d+)(?:\.x?y?z?w?)?(?:\[[^[]+\])?(?:, \d+)?(?:, space=(\d+))?.*$)");
+        auto [type, slot, space] = StringViewMatch<3>(line, REGEX);
+        if (type.empty()) continue;
+        assert(!slot.empty());
+        ResourceBind resource_bind = {};
+        if (type == "T" || type == "t") {
+          resource_bind.type = ResourceBind::BindType::SRV;
+        } else if (type == "U" || type == "u") {
+          resource_bind.type = ResourceBind::BindType::UAV;
+        } else if (type == "cb" || type == "CB") {
+          resource_bind.type = ResourceBind::BindType::CBV;
+        } else {
+          assert(false);
+          continue;
+        }
+        FromStringView(slot, resource_bind.slot);
+        if (!space.empty()) {
+          FromStringView(space, resource_bind.space);
+        }
+        shader_details->resource_binds->push_back(resource_bind);
+      }
+    } else {
+      auto disassembly = std::get<std::string>(shader_details->disassembly);
+      auto source_lines = StringViewSplitAll(disassembly, '\n');
+      shader_details->resource_binds = std::vector<ResourceBind>();
+      std::map<std::string_view, std::vector<std::string_view>> metadata_map;
+
+      for (auto line : source_lines) {
+        if (!line.starts_with("!")) continue;
+        static auto regex = std::regex{R"(^(\S+) = !\{(.*)\}$)"};
+        static auto values_regex = std::regex(R"(\s*([^,"]+(("[^"]*")[^,]*|)),?)");
+
+        auto [variable_name, values_packed] = StringViewMatch<2>(line, regex);
+        auto values = StringViewSplitAll(values_packed, values_regex, 1);
+        auto len = values.size();
+        for (int i = 0; i < len; ++i) {
+          values[i] = StringViewTrim(values[i]);
+        }
+        metadata_map[variable_name] = values;
+      }
+
+      auto resource_list_metadata = metadata_map["!dx.resources"];
+
+      if (!resource_list_metadata.empty()) {
+        auto resource_list_reference = resource_list_metadata[0];
+        auto resource_list_key = resource_list_reference;
+        auto resource_list = metadata_map[resource_list_key];
+
+        auto srv_list_key = resource_list[0];
+        auto uav_list_key = resource_list[1];
+        auto cbv_list_key = resource_list[2];
+        // auto sampler_list_key = resource_list[3];
+
+        if (srv_list_key != "null") {
+          auto srv_list = metadata_map[srv_list_key];
+          for (const auto srv_key : srv_list) {
+            auto metadata = metadata_map[srv_key];
+            ResourceBind resource_bind = {
+                .type = ResourceBind::BindType::SRV,
+            };
+
+            FromStringView(
+                renodx::utils::shader::decompiler::dxc::Metadata::ParseKeyValue(metadata[3])[1],
+                resource_bind.space);
+            FromStringView(
+                renodx::utils::shader::decompiler::dxc::Metadata::ParseKeyValue(metadata[4])[1],
+                resource_bind.slot);
+            shader_details->resource_binds->push_back(resource_bind);
+          }
+        }
+
+        if (uav_list_key != "null") {
+          auto uav_list = metadata_map[uav_list_key];
+          for (const auto uav_key : uav_list) {
+            auto metadata = metadata_map[uav_key];
+            ResourceBind resource_bind = {
+                .type = ResourceBind::BindType::UAV,
+            };
+
+            FromStringView(renodx::utils::shader::decompiler::dxc::Metadata::ParseKeyValue(metadata[3])[1], resource_bind.space);
+            FromStringView(renodx::utils::shader::decompiler::dxc::Metadata::ParseKeyValue(metadata[4])[1], resource_bind.slot);
+            shader_details->resource_binds->push_back(resource_bind);
+          }
+        }
+
+        if (cbv_list_key != "null") {
+          auto cbv_list = metadata_map[cbv_list_key];
+          for (const auto cbv_key : cbv_list) {
+            auto metadata = metadata_map[cbv_key];
+            ResourceBind resource_bind = {
+                .type = ResourceBind::BindType::CBV,
+            };
+
+            FromStringView(renodx::utils::shader::decompiler::dxc::Metadata::ParseKeyValue(metadata[3])[1], resource_bind.space);
+            FromStringView(renodx::utils::shader::decompiler::dxc::Metadata::ParseKeyValue(metadata[4])[1], resource_bind.slot);
+            shader_details->resource_binds->push_back(resource_bind);
+          }
+        }
+      }
+    }
+  }
+  return shader_details->resource_binds;
+}
+
+std::string GetEntryPointForShaderDetails(reshade::api::device* device, DeviceData* data, ShaderDetails* shader_details) {
+  if (!shader_details->entrypoint.empty()) {
+    return shader_details->entrypoint;
+  }
+
+  bool ok = ComputeDisassemblyForShaderDetails(device, data, shader_details);
+  if (!ok) {
+    return shader_details->entrypoint;
+  }
+
+  // Read texture declarations from SM5 disassembly
+  if (shader_details->program_version.has_value()) {
+    shader_details->resource_binds = std::vector<ResourceBind>();
+
+    if (shader_details->program_version->GetMajor() <= 5) {
+      return "main";
+    } else {
+      auto disassembly = std::get<std::string>(shader_details->disassembly);
+      auto source_lines = StringViewSplitAll(disassembly, '\n');
+      shader_details->resource_binds = std::vector<ResourceBind>();
+      std::map<std::string_view, std::vector<std::string_view>> metadata_map;
+
+      for (auto line : source_lines) {
+        if (!line.starts_with("!")) continue;
+        static auto regex = std::regex{R"(^(\S+) = !\{(.*)\}$)"};
+        static auto values_regex = std::regex(R"(\s*([^,"]+(("[^"]*")[^,]*|)),?)");
+
+        auto [variable_name, values_packed] = StringViewMatch<2>(line, regex);
+        auto values = StringViewSplitAll(values_packed, values_regex, 1);
+        auto len = values.size();
+        for (int i = 0; i < len; ++i) {
+          values[i] = StringViewTrim(values[i]);
+        }
+        metadata_map[variable_name] = values;
+      }
+
+      if (auto pair = metadata_map.find("!dx.entryPoints");
+          pair != metadata_map.end() && !pair->second.empty()) {
+        auto entry_points_reference = pair->second.at(0);
+        auto entry_points_key = entry_points_reference;
+        auto entry_points = metadata_map[entry_points_key];
+
+        auto name = entry_points[1];
+        static auto regex = std::regex{R"(^!\"?([^"]*)\"?$)"};
+        auto [parsed_name] = StringViewMatch<1>(name, regex);
+        if (!parsed_name.empty()) {
+          shader_details->entrypoint = parsed_name;
+        } else {
+          shader_details->entrypoint = "main";
+        }
+      }
+    }
+  }
+  return shader_details->entrypoint;
+}
 
 // Settings
 std::atomic_bool is_tracing_pipelines = false;
@@ -406,6 +668,9 @@ void OnDestroyDevice(reshade::api::device* device) {
   if (snapshot_device == device) {
     snapshot_device = nullptr;
   }
+  if (snapshot_queued_device == device) {
+    snapshot_queued_device = nullptr;
+  }
   auto* device_data = renodx::utils::data::Get<DeviceData>(device);
   if (device_data == nullptr) return;
   std::unique_lock lock(device_data_list_mutex);
@@ -472,6 +737,13 @@ void OnInitPipeline(
   auto* data = renodx::utils::data::Get<DeviceData>(device);
   const std::unique_lock lock(data->mutex);
   data->live_pipelines.emplace(pipeline.handle);
+
+  for (const auto& subobject : std::span<const reshade::api::pipeline_subobject>(subobjects, subobject_count)) {
+    if (subobject.type == reshade::api::pipeline_subobject_type::blend_state) {
+      const auto* blend_desc = reinterpret_cast<const reshade::api::blend_desc*>(subobject.data);
+      data->pipeline_blends[pipeline.handle] = *blend_desc;
+    }
+  }
 }
 
 void OnDestroyPipeline(
@@ -481,6 +753,7 @@ void OnDestroyPipeline(
   auto* data = renodx::utils::data::Get<DeviceData>(device);
   const std::unique_lock lock(data->mutex);
   data->live_pipelines.erase(pipeline.handle);
+  data->pipeline_blends.erase(pipeline.handle);
 }
 
 void OnBindPipeline(
@@ -508,12 +781,15 @@ void OnBindPipeline(
     }
   }
 
-  if (added_shaders.empty()) return;
-
   auto* device = cmd_list->get_device();
 
   auto* device_data = renodx::utils::data::Get<DeviceData>(device);
   std::unique_lock lock(device_data->mutex);
+  auto pair = device_data->pipeline_blends.find(pipeline.handle);
+  if (pair != device_data->pipeline_blends.end()) {
+    auto& blend_desc = pair->second;
+    cmd_list_data->blend_desc = blend_desc;
+  }
 
   for (const auto shader_hash : added_shaders) {
     if (shader_hash == 0u) continue;
@@ -570,6 +846,33 @@ void OnBindPipeline(
       }
     }
   }
+}
+
+bool OnCopyResource(
+    reshade::api::command_list* cmd_list,
+    reshade::api::resource source,
+    reshade::api::resource dest) {
+  if (snapshot_device == nullptr) return false;
+
+  auto* device = cmd_list->get_device();
+
+  if (device == snapshot_device) {
+    DrawDetails draw_details = {
+        .draw_method = DrawDetails::DrawMethods::COPY,
+        .timestamp = std::chrono::system_clock::now(),
+        .copy_source = source,
+        .copy_destination = dest,
+    };
+
+    auto* device_data = renodx::utils::data::Get<DeviceData>(device);
+    std::unique_lock lock(device_data->mutex);
+    reshade::log::message(reshade::log::level::debug, std::format("Snapshot #{}", device_data->draw_details_list.size()).c_str());
+    device_data->draw_details_list.push_back(draw_details);
+  } else {
+    reshade::log::message(reshade::log::level::debug, "Foreign Copy.");
+  }
+
+  return false;
 }
 
 static void OnDestroyResource(reshade::api::device* device, reshade::api::resource resource) {
@@ -713,28 +1016,12 @@ bool OnDraw(reshade::api::command_list* cmd_list, DrawDetails::DrawMethods draw_
 
   auto* device_data = renodx::utils::data::Get<DeviceData>(device);
 
-  auto* state = renodx::utils::shader::GetCurrentState(cmd_list);
-
-  if (skip_draw_count != 0.f) {
-    std::shared_lock lock(device_data->mutex);
-
-    for (auto& stage_state : state->stage_states) {
-      renodx::utils::shader::PopulateStageState(&stage_state);
-      auto shader_hash = renodx::utils::shader::GetCurrentShaderHash(&stage_state);
-      if (auto pair = device_data->shader_details.find(shader_hash);
-          pair != device_data->shader_details.end()) {
-        auto details = pair->second;
-        if (details.bypass_draw) {
-          bypass_draw = true;
-          break;
-        }
-      }
-    }
-  }
-
   if (device == snapshot_device) {
+    auto* state = renodx::utils::shader::GetCurrentState(cmd_list);
+
     auto* command_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
     DrawDetails draw_details = {};
+    draw_details.timestamp = std::chrono::system_clock::now();
     draw_details.draw_method = draw_method;
     draw_details.constants = command_list_data->constants;
     // draw_details.pipeline_binds = command_list_data->pipeline_binds;
@@ -745,30 +1032,61 @@ bool OnDraw(reshade::api::command_list* cmd_list, DrawDetails::DrawMethods draw_
       draw_details.srv_binds = command_list_data->pixel_srv_binds;
       draw_details.uav_binds = command_list_data->pixel_uav_binds;
     }
-
     draw_details.render_targets = command_list_data->render_targets;
+    draw_details.blend_desc = command_list_data->blend_desc;
 
     std::unique_lock lock(device_data->mutex);
 
-    for (auto state : state->stage_states) {
+    std::set<reshade::api::pipeline> added_pipelines;
+    for (auto stage_state : state->stage_states) {
       if (draw_method == DrawDetails::DrawMethods::DISPATCH) {
-        if (state.stage != reshade::api::pipeline_stage::compute_shader) continue;
+        if (stage_state.stage != reshade::api::pipeline_stage::compute_shader) continue;
       } else {
-        if (state.stage == reshade::api::pipeline_stage::compute_shader) continue;
+        if (stage_state.stage == reshade::api::pipeline_stage::compute_shader) continue;
       }
 
-      renodx::utils::shader::PopulateStageState(&state);
-      auto shader_hash = renodx::utils::shader::GetCurrentShaderHash(&state);
-      auto pipeline_details = PipelineBindDetails{
-          .pipeline = state.pipeline,
-          .pipeline_stage = state.stage,
-      };
-      if (state.pipeline_details != nullptr) {
-        pipeline_details.shader_hashes = {
-            state.pipeline_details->shader_hashes.begin(),
-            state.pipeline_details->shader_hashes.end()};
+      renodx::utils::shader::PopulateStageState(&stage_state);
+      auto shader_hash = renodx::utils::shader::GetCurrentShaderHash(&stage_state);
+
+      ShaderDetails* shader_details = nullptr;
+
+      if (skip_draw_count != 0) {
+        if (auto pair = device_data->shader_details.find(shader_hash);
+            pair != device_data->shader_details.end()) {
+          shader_details = &pair->second;
+          if (shader_details->bypass_draw) {
+            bypass_draw = true;
+          }
+        }
       }
-      draw_details.pipeline_binds.push_back(pipeline_details);
+
+      auto pipeline_details = PipelineBindDetails{
+          .pipeline = stage_state.pipeline,
+          .pipeline_stage = stage_state.stage,
+      };
+      if (stage_state.pipeline_details != nullptr) {
+        pipeline_details.shader_hashes = {
+            stage_state.pipeline_details->shader_hashes.begin(),
+            stage_state.pipeline_details->shader_hashes.end()};
+      }
+
+      if ((draw_method == DrawDetails::DrawMethods::DISPATCH && stage_state.stage == reshade::api::pipeline_stage::compute_shader)
+          || (draw_details.draw_method != DrawDetails::DrawMethods::DISPATCH && stage_state.stage == reshade::api::pipeline_stage::pixel_shader)) {
+        if (shader_details == nullptr) {
+          shader_details = device_data->GetShaderDetails(shader_hash);
+        }
+        if (shader_details != nullptr) {
+          if (!shader_details->resource_binds.has_value()) {
+            GetResourceBindsForShaderDetails(device, device_data, shader_details);
+          }
+          draw_details.resource_binds = shader_details->resource_binds;
+        }
+      }
+
+      if (!added_pipelines.contains(pipeline_details.pipeline)) {
+        added_pipelines.emplace(pipeline_details.pipeline);
+        draw_details.pipeline_binds.push_back(pipeline_details);
+      }
     }
 
     auto* pipeline_shader_details = renodx::utils::shader::GetPipelineShaderDetails(state->last_pipeline);
@@ -917,14 +1235,38 @@ bool OnDraw(reshade::api::command_list* cmd_list, DrawDetails::DrawMethods draw_
         }
         ++rtv_index;
       }
+      if (draw_details.render_targets.empty()) {
+        reshade::log::message(reshade::log::level::warning, "Draw with no RTVs");
+      }
     }
 
     // device_data->command_list_data.push_back(*command_list_data);
-    reshade::log::message(reshade::log::level::debug, std::format("Snapshot #{}", device_data->draw_details.size()).c_str());
-    device_data->draw_details.push_back(draw_details);
+    reshade::log::message(reshade::log::level::debug, std::format("Snapshot #{}", device_data->draw_details_list.size()).c_str());
+    device_data->draw_details_list.push_back(draw_details);
     // command_list_data->draw_details.clear();
   } else if (snapshot_device != nullptr) {
     reshade::log::message(reshade::log::level::debug, "Foreign Draw.");
+  } else if (skip_draw_count != 0) {
+    auto* state = renodx::utils::shader::GetCurrentState(cmd_list);
+    std::shared_lock lock(device_data->mutex);
+    for (auto& stage_state : state->stage_states) {
+      if (draw_method == DrawDetails::DrawMethods::DISPATCH) {
+        if (stage_state.stage != reshade::api::pipeline_stage::compute_shader) continue;
+      } else {
+        if (stage_state.stage == reshade::api::pipeline_stage::compute_shader) continue;
+      }
+
+      renodx::utils::shader::PopulateStageState(&stage_state);
+      auto shader_hash = renodx::utils::shader::GetCurrentShaderHash(&stage_state);
+
+      if (auto pair = device_data->shader_details.find(shader_hash);
+          pair != device_data->shader_details.end()) {
+        auto* shader_details = &pair->second;
+        if (shader_details->bypass_draw) {
+          bypass_draw = true;
+        }
+      }
+    }
   }
 
   return bypass_draw;
@@ -995,36 +1337,35 @@ void LoadDiskShaders(reshade::api::device* device, DeviceData* data, bool activa
   }
 }
 
-void RenderFileAlias(std::optional<renodx::utils::shader::compiler::watcher::CustomShader>& disk_shader) {
-  if (disk_shader.has_value()) {
-    // Has custom shader file
-    std::string file_alias = disk_shader->GetFileAlias();
-    if (disk_shader->IsCompilationOK()) {
-      if (file_alias.empty()) {
-        ImGui::TextColored(ImVec4(0, 255, 0, 128), "Custom");
-      } else {
-        ImGui::TextColored(ImVec4(0, 255, 0, 255), "%s", file_alias.c_str());
-      }
+bool RenderFileAlias(std::optional<renodx::utils::shader::compiler::watcher::CustomShader>& disk_shader) {
+  if (!disk_shader.has_value()) return false;
+  // Has custom shader file
+  std::string file_alias = disk_shader->GetFileAlias();
+  if (disk_shader->IsCompilationOK()) {
+    if (file_alias.empty()) {
+      ImGui::TextColored(ImVec4(0, 255, 0, 128), "Custom");
     } else {
-      if (file_alias.empty()) {
-        ImGui::TextColored(ImVec4(255, 0, 0, 128), "Custom");
-      } else {
-        ImGui::TextColored(ImVec4(255, 0, 0, 255), "%s", file_alias.c_str());
-      }
+      ImGui::TextColored(ImVec4(0, 255, 0, 255), "%s", file_alias.c_str());
     }
   } else {
-    ImGui::TextUnformatted("");
+    if (file_alias.empty()) {
+      ImGui::TextColored(ImVec4(255, 0, 0, 128), "Custom");
+    } else {
+      ImGui::TextColored(ImVec4(255, 0, 0, 255), "%s", file_alias.c_str());
+    }
   }
+  return true;
 }
 
 void RenderMenuBar(reshade::api::device* device, DeviceData* data) {
   if (ImGui::BeginMenuBar()) {
     ImGui::PushID("##SnapshotButton");
+    ImGui::BeginDisabled(snapshot_device != nullptr);
     if (ImGui::MenuItem("Snapshot")) {
-      data->StartSnapshot();
-      snapshot_device = data->device;
-      renodx::utils::trace::trace_running = true;
+      snapshot_queued_device = device;
+      renodx::utils::trace::trace_scheduled = true;
     }
+    ImGui::EndDisabled();
     ImGui::PopID();
 
     ImGui::PushID("##menu_shaders_auto_dump");
@@ -1113,20 +1454,21 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
   static ImGuiTreeNodeFlags tree_node_flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_SpanFullWidth;
   if (ImGui::BeginTable(
           "##SnapshotTree",
-          5,
+          CAPTURE_PANE_COLUMN_COUNT,
           ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_Resizable | ImGuiTableFlags_Hideable
               | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_ScrollY,
           ImVec2(-4, -4))) {
-    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 24.0f);
-    ImGui::TableSetupColumn("Ref", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 16.0f);
-    ImGui::TableSetupColumn("Info", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 24.0f);
-    ImGui::TableSetupColumn("Reflection", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 24.0f);
+    const auto char_width = ImGui::CalcTextSize("0").x;
+    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, char_width * 16.0f);
+    ImGui::TableSetupColumn("Ref", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthFixed, char_width * 18.0f);
+    ImGui::TableSetupColumn("Info", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthFixed, char_width * 24.0f);
+    ImGui::TableSetupColumn("Reflection", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, -1.f);
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableHeadersRow();
 
-    uint32_t row_index = 0x2000;
+    int row_index = 0x2000;
     int draw_index = 0;
-    for (auto& draw_details : data->draw_details) {
+    for (auto& draw_details : data->draw_details_list) {
       ImGui::TableNextRow();
       bool draw_node_open = false;
 
@@ -1144,7 +1486,17 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
         ImGui::Text("%03d", draw_index);
       }
 
-      for (const auto& [slot, buffer_range] : draw_details.constants) {
+      for (const auto& [slot_space, buffer_range] : draw_details.constants) {
+        const auto& slot = slot_space.first;
+        const auto& space = slot_space.second;
+        if (buffer_range.buffer.handle == 0u) continue;
+        if (snapshot_pane_filter_resources_by_shader_use && draw_details.resource_binds.has_value()) {
+          if (std::ranges::none_of(*draw_details.resource_binds, [&slot, &space](const ResourceBind& bind) {
+                return bind.type == ResourceBind::BindType::CBV && bind.slot == slot && bind.space == space;
+              })) {
+            continue;
+          }
+        }
         ++row_index;
 
         if (draw_node_open) {
@@ -1158,7 +1510,7 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
                                 | selection.GetTreeNodeFlags();
 
             ImGui::PushID(row_index);
-            ImGui::TreeNodeEx("", bullet_flags, (slot.second == 0) ? "CB%d" : "CB%d,space%d", slot.first, slot.second);
+            ImGui::TreeNodeEx("", bullet_flags, (space == 0) ? "CB%d" : "CB%d,space%d", slot, space);
             ImGui::PopID();
             if (ImGui::IsItemClicked()) {
               MakeSelectionCurrent(selection);
@@ -1215,6 +1567,7 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
             default:
               break;
           }
+
           // Start drawing shader row
           ++row_index;  // Count rows regardless of tree node state
           if (draw_node_open) {
@@ -1258,7 +1611,10 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
             }
 
             if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_REFLECTION))) {
-              if (!pipeline_details.tag->empty()) {
+              auto entrypoint = GetEntryPointForShaderDetails(device, data, shader_details);
+              if (!entrypoint.empty() && entrypoint != "main") {
+                ImGui::TextUnformatted(entrypoint.c_str());
+              } else if (!pipeline_details.tag->empty()) {
                 ImGui::TextUnformatted(pipeline_details.tag->c_str());
               }
             }
@@ -1266,7 +1622,16 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
         }
       }
 
-      for (auto& [slot, resource_view_details] : draw_details.srv_binds) {
+      for (auto& [slot_space, resource_view_details] : draw_details.srv_binds) {
+        const auto& slot = slot_space.first;
+        const auto& space = slot_space.second;
+        if (snapshot_pane_filter_resources_by_shader_use && draw_details.resource_binds.has_value()) {
+          if (std::ranges::none_of(*draw_details.resource_binds, [&slot, &space](const ResourceBind& bind) {
+                return bind.type == ResourceBind::BindType::SRV && bind.slot == slot && bind.space == space;
+              })) {
+            continue;
+          }
+        }
         ++row_index;
         bool srv_node_open = false;
         if (draw_node_open) {
@@ -1276,7 +1641,7 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
             srv_node_open = ImGui::TreeNodeEx(
                 "",
                 tree_node_flags | ImGuiTreeNodeFlags_DefaultOpen,
-                (slot.second == 0) ? "SRV%d" : "SRV%d,space%d", slot.first, slot.second);
+                (space == 0) ? "T%d" : "T%d,space%d", slot, space);
             ImGui::PopID();
           }
 
@@ -1387,7 +1752,18 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
         }
       }
 
-      for (auto& [slot, resource_view_details] : draw_details.uav_binds) {
+      for (auto& [slot_space, resource_view_details] : draw_details.uav_binds) {
+        const auto& slot = slot_space.first;
+        const auto& space = slot_space.second;
+
+        if (snapshot_pane_filter_resources_by_shader_use && draw_details.resource_binds.has_value()) {
+          if (std::ranges::none_of(*draw_details.resource_binds, [&slot, &space](const ResourceBind& bind) {
+                return bind.type == ResourceBind::BindType::UAV && bind.slot == slot && bind.space == space;
+              })) {
+            continue;
+          }
+        }
+
         ++row_index;
         bool uav_node_open = false;
         if (draw_node_open) {
@@ -1398,7 +1774,7 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
             uav_node_open = ImGui::TreeNodeEx(
                 "",
                 tree_node_flags | ImGuiTreeNodeFlags_DefaultOpen,
-                (slot.second == 0) ? "UAV%d" : "UAV%d,space%d", slot.first, slot.second);
+                (space == 0) ? "UAV%d" : "UAV%d,space%d", slot, space);
 
             ImGui::PopID();
           }
@@ -1471,6 +1847,36 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
             }
           }
 
+          if (resource_view_details.resource_desc.texture.format != reshade::api::format::unknown) {
+            row_index++;
+            ImGui::TableNextRow();
+
+            if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_TYPE))) {
+              auto bullet_flags = tree_node_flags | ImGuiTreeNodeFlags_Leaf
+                                  | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_NoTreePushOnOpen
+                                  | selection.GetTreeNodeFlags();
+              ImGui::PushID(row_index);
+              ImGui::TreeNodeEx("", bullet_flags, "Dimensions");
+              ImGui::PopID();
+              if (ImGui::IsItemClicked()) {
+                MakeSelectionCurrent(selection);
+                ImGui::SetItemDefaultFocus();
+              }
+            }
+
+            if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_REF))) {
+              ImGui::Text("0x%016llX", resource_view_details.resource.handle);
+            }
+
+            if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_INFO))) {
+              if (resource_view_details.resource_desc.type == reshade::api::resource_type::texture_3d) {
+                ImGui::Text("%dx%dx%d", resource_view_details.resource_desc.texture.width, resource_view_details.resource_desc.texture.height, resource_view_details.resource_desc.texture.depth_or_layers);
+              } else {
+                ImGui::Text("%dx%d", resource_view_details.resource_desc.texture.width, resource_view_details.resource_desc.texture.height);
+              }
+            }
+          }
+
           ImGui::TreePop();
         }
       }
@@ -1510,11 +1916,11 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
             }
           }
         }
-        ++row_index;
-        if (rtv_node_open) {
-          SettingSelection search = {.resource_handle = render_target.resource.handle};
-          auto& selection = GetSelection(search);
 
+        ++row_index;
+        SettingSelection search = {.resource_handle = render_target.resource.handle};
+        auto& selection = GetSelection(search);
+        if (rtv_node_open) {
           ImGui::TableNextRow();
           if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_TYPE))) {
             auto bullet_flags = tree_node_flags | ImGuiTreeNodeFlags_Leaf
@@ -1553,11 +1959,12 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
               ImGui::TextUnformatted(render_target.resource_reflection.c_str());
             }
           }
+        }
 
-          if (render_target.resource_desc.texture.format != reshade::api::format::unknown) {
-            row_index++;
+        if (render_target.resource_desc.texture.format != reshade::api::format::unknown) {
+          row_index++;
+          if (rtv_node_open) {
             ImGui::TableNextRow();
-
             if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_TYPE))) {
               auto bullet_flags = tree_node_flags | ImGuiTreeNodeFlags_Leaf
                                   | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_NoTreePushOnOpen
@@ -1588,8 +1995,358 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
               }
             }
           }
+        }
 
+        if (draw_details.blend_desc.has_value()) {
+          auto& blend_desc = draw_details.blend_desc.value();
+
+          const auto& alpha_to_coverage_enable = blend_desc.alpha_to_coverage_enable;
+          const auto& blend_enable = blend_desc.blend_enable[rtv_index];
+          const auto& logic_op_enable = blend_desc.logic_op_enable[rtv_index];
+          const auto& source_color_blend_factor = blend_desc.source_color_blend_factor[rtv_index];
+          const auto& dest_color_blend_factor = blend_desc.dest_color_blend_factor[rtv_index];
+          const auto& color_blend_op = blend_desc.color_blend_op[rtv_index];
+          const auto& source_alpha_blend_factor = blend_desc.source_alpha_blend_factor[rtv_index];
+          const auto& dest_alpha_blend_factor = blend_desc.dest_alpha_blend_factor[rtv_index];
+          const auto& alpha_blend_op = blend_desc.alpha_blend_op[rtv_index];
+          const auto& blend_constant = blend_desc.blend_constant;
+          const auto& logic_op = blend_desc.logic_op[rtv_index];
+          const auto& render_target_write_mask = blend_desc.render_target_write_mask[rtv_index];
+
+          if (blend_enable) {
+            ++row_index;
+            if (rtv_node_open) {
+              ImGui::TableNextRow();
+              if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_TYPE))) {
+                auto bullet_flags = tree_node_flags | ImGuiTreeNodeFlags_Leaf
+                                    | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_NoTreePushOnOpen
+                                    | selection.GetTreeNodeFlags();
+                ImGui::PushID(row_index);
+                ImGui::TreeNodeEx("", bullet_flags, "Blend");
+                ImGui::PopID();
+                if (ImGui::IsItemClicked()) {
+                  MakeSelectionCurrent(selection);
+                  ImGui::SetItemDefaultFocus();
+                }
+              }
+
+              static const std::vector<std::pair<std::string, reshade::api::blend_desc>> KNOWN_BLENDS = {
+                  // Porter-Duff Modes: https://graphics.pixar.com/library/Compositing/paper.pdf
+                  // https://developer.android.com/reference/android/graphics/PorterDuff.Mode
+                  {"CLEAR", reshade::api::blend_desc{
+                                .source_color_blend_factor = {reshade::api::blend_factor::zero},
+                                .dest_color_blend_factor = {reshade::api::blend_factor::zero},
+                                .source_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                                .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                            }},
+                  {"SRC", reshade::api::blend_desc{
+                              .source_color_blend_factor = {reshade::api::blend_factor::one},
+                              .dest_color_blend_factor = {reshade::api::blend_factor::zero},
+                              .source_alpha_blend_factor = {reshade::api::blend_factor::one},
+                              .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                          }},
+                  {"DST", reshade::api::blend_desc{
+                              .source_color_blend_factor = {reshade::api::blend_factor::zero},
+                              .dest_color_blend_factor = {reshade::api::blend_factor::one},
+                              .source_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                              .dest_alpha_blend_factor = {reshade::api::blend_factor::one},
+                          }},
+                  {"SRC_OVER", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::one},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::one},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                               }},
+                  {"DST_OVER", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::one},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::one},
+                               }},
+                  {"SRC_IN", reshade::api::blend_desc{
+                                 .source_color_blend_factor = {reshade::api::blend_factor::dest_alpha},
+                                 .dest_color_blend_factor = {reshade::api::blend_factor::zero},
+                                 .source_alpha_blend_factor = {reshade::api::blend_factor::dest_alpha},
+                                 .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                             }},
+                  {"DEST_IN", reshade::api::blend_desc{
+                                  .source_color_blend_factor = {reshade::api::blend_factor::zero},
+                                  .dest_color_blend_factor = {reshade::api::blend_factor::source_alpha},
+                                  .source_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                                  .dest_alpha_blend_factor = {reshade::api::blend_factor::source_alpha},
+                              }},
+                  {"SRC_OUT", reshade::api::blend_desc{
+                                  .source_color_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                  .dest_color_blend_factor = {reshade::api::blend_factor::zero},
+                                  .source_alpha_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                  .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                              }},
+                  {"DEST_OUT", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::zero},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                               }},
+                  {"SRC_ATOP", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::dest_alpha},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::dest_alpha},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                               }},
+
+                  {"SRC_ATOP", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::source_alpha},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::source_alpha},
+                               }},
+
+                  {"DST_ATOP", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::source_alpha},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::source_alpha},
+                               }},
+
+                  {"XOR", reshade::api::blend_desc{
+                              .source_color_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                              .dest_color_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                              .source_alpha_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                              .dest_alpha_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                          }},
+
+                  {"PLUS", reshade::api::blend_desc{
+                               .source_color_blend_factor = {reshade::api::blend_factor::one},
+                               .dest_color_blend_factor = {reshade::api::blend_factor::one},
+                               .source_alpha_blend_factor = {reshade::api::blend_factor::one},
+                               .dest_alpha_blend_factor = {reshade::api::blend_factor::one},
+                           }},
+                  // Alternate
+                  {"SRC_ATOP", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::dest_alpha},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::one_minus_source_alpha},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::one},
+                               }},
+
+                  // Alternate
+                  {"DST_ATOP", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::source_alpha},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::one},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                               }},
+
+                  // Custom
+                  {"SRC_ADD", reshade::api::blend_desc{
+                                  .source_color_blend_factor = {reshade::api::blend_factor::one},
+                                  .dest_color_blend_factor = {reshade::api::blend_factor::one},
+                                  .source_alpha_blend_factor = {reshade::api::blend_factor::one},
+                                  .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                              }},
+                  {"SRC_ADD_SAT", reshade::api::blend_desc{
+                                      .source_color_blend_factor = {reshade::api::blend_factor::one},
+                                      .dest_color_blend_factor = {reshade::api::blend_factor::one},
+                                      .source_alpha_blend_factor = {reshade::api::blend_factor::source_alpha_saturate},
+                                      .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                                  }},
+                  {"DEST_ADD", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::one},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::one},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::one},
+                               }},
+                  {"SRC_ADD_SAT", reshade::api::blend_desc{
+                                      .source_color_blend_factor = {reshade::api::blend_factor::one},
+                                      .dest_color_blend_factor = {reshade::api::blend_factor::one},
+                                      .source_alpha_blend_factor = {reshade::api::blend_factor::source_alpha_saturate},
+                                      .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                                  }},
+                  {"MULTIPLY", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::dest_color},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::zero},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::dest_alpha},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                               }},
+
+                  {"MULTIPLY", reshade::api::blend_desc{
+                                   .source_color_blend_factor = {reshade::api::blend_factor::zero},
+                                   .dest_color_blend_factor = {reshade::api::blend_factor::source_color},
+                                   .source_alpha_blend_factor = {reshade::api::blend_factor::zero},
+                                   .dest_alpha_blend_factor = {reshade::api::blend_factor::dest_alpha},
+                               }},
+
+                  {"SCREEN", reshade::api::blend_desc{
+                                 .source_color_blend_factor = {reshade::api::blend_factor::one},
+                                 .dest_color_blend_factor = {reshade::api::blend_factor::one_minus_source_color},
+                                 .source_alpha_blend_factor = {reshade::api::blend_factor::one},
+                                 .dest_alpha_blend_factor = {reshade::api::blend_factor::one_minus_dest_alpha},
+                             }},
+
+              };
+
+              if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_INFO))) {
+                std::string details = "Unknown";
+                for (const auto& [name, known_blend] : KNOWN_BLENDS) {
+                  if (known_blend.color_blend_op[0] == color_blend_op
+                      && known_blend.alpha_blend_op[0] == alpha_blend_op
+                      && known_blend.source_color_blend_factor[0] == source_color_blend_factor
+                      && known_blend.dest_color_blend_factor[0] == dest_color_blend_factor
+                      && known_blend.source_alpha_blend_factor[0] == source_alpha_blend_factor
+                      && known_blend.dest_alpha_blend_factor[0] == dest_alpha_blend_factor) {
+                    details = name;
+                    break;
+                  }
+                }
+
+                // Unknown?
+                // (sc * 0) + (1 - sc)* dc = dc - sc * dc;
+                // (sa * 0) + (1 - sa)* da = d - s * d;
+
+                if (alpha_to_coverage_enable) {
+                  details += " | Alpha to Coverage";
+                }
+                if (logic_op_enable) {
+                  details += " | Logic Op";
+                }
+                ImGui::TextUnformatted(details.c_str());
+              }
+            }
+          }
+
+          if (render_target_write_mask != 0xF) {
+            // Add row for render target write mask
+            ++row_index;
+            if (rtv_node_open) {
+              ImGui::TableNextRow();
+              if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_TYPE))) {
+                auto bullet_flags = tree_node_flags | ImGuiTreeNodeFlags_Leaf
+                                    | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_NoTreePushOnOpen
+                                    | selection.GetTreeNodeFlags();
+                ImGui::PushID(row_index);
+                ImGui::TreeNodeEx("", bullet_flags, "Write Mask");
+                ImGui::PopID();
+                if (ImGui::IsItemClicked()) {
+                  MakeSelectionCurrent(selection);
+                  ImGui::SetItemDefaultFocus();
+                }
+              }
+
+              if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_INFO))) {
+                std::string details;
+                if ((render_target_write_mask & 0x1) != 0) {
+                  details += "R";
+                }
+                if ((render_target_write_mask & 0x2) != 0) {
+                  details += "G";
+                }
+                if ((render_target_write_mask & 0x4) != 0) {
+                  details += "B";
+                }
+                if ((render_target_write_mask & 0x8) != 0) {
+                  details += "A";
+                }
+
+                if (details.empty()) {
+                  details = "(none)";
+                }
+
+                ImGui::TextUnformatted(details.c_str());
+              }
+            }
+          }
+        }
+
+        if (rtv_node_open) {
           ImGui::TreePop();
+        }
+      }
+
+      if (draw_details.copy_source.handle != 0u) {
+        ++row_index;
+        bool res_node_open = false;
+        if (draw_node_open) {
+          ImGui::TableNextRow();
+          if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_TYPE))) {
+            SettingSelection search = {.resource_handle = draw_details.copy_source.handle};
+            auto& selection = GetSelection(search);
+            auto bullet_flags = tree_node_flags | ImGuiTreeNodeFlags_Leaf
+                                | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_NoTreePushOnOpen
+                                | selection.GetTreeNodeFlags();
+
+            ImGui::PushID(row_index);
+            ImGui::TreeNodeEx("", bullet_flags, "Source");
+            ImGui::PopID();
+            if (ImGui::IsItemClicked()) {
+              MakeSelectionCurrent(selection);
+              ImGui::SetItemDefaultFocus();
+            }
+          }
+
+          if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_REF))) {
+            ImGui::Text("0x%016llX", draw_details.copy_source.handle);
+          }
+
+          auto* info = renodx::utils::resource::GetResourceInfo(draw_details.copy_source);
+          if (info != nullptr) {
+            if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_INFO))) {
+              std::stringstream s;
+              s << info->desc.texture.format;
+              if (info->is_swap_chain) {
+                ImGui::TextColored(ImVec4(0, 255, 0, 255), "%s", s.str().c_str());
+              } else if (info->upgraded) {
+                ImGui::TextColored(ImVec4(0, 255, 255, 255), "%s", s.str().c_str());
+              } else if (info->clone.handle != 0u) {
+                ImGui::TextColored(ImVec4(255, 255, 0, 255), "%s", s.str().c_str());
+              } else {
+                ImGui::TextUnformatted(s.str().c_str());
+              }
+            }
+          }
+        }
+      }
+
+      if (draw_details.copy_destination.handle != 0u) {
+        ++row_index;
+        bool res_node_open = false;
+        if (draw_node_open) {
+          ImGui::TableNextRow();
+          if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_TYPE))) {
+            SettingSelection search = {.resource_handle = draw_details.copy_destination.handle};
+            auto& selection = GetSelection(search);
+            auto bullet_flags = tree_node_flags | ImGuiTreeNodeFlags_Leaf
+                                | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_NoTreePushOnOpen
+                                | selection.GetTreeNodeFlags();
+
+            ImGui::PushID(row_index);
+            ImGui::TreeNodeEx("", bullet_flags, "Destination");
+            ImGui::PopID();
+            if (ImGui::IsItemClicked()) {
+              MakeSelectionCurrent(selection);
+              ImGui::SetItemDefaultFocus();
+            }
+          }
+
+          if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_REF))) {
+            ImGui::Text("0x%016llX", draw_details.copy_destination.handle);
+          }
+
+          auto* info = renodx::utils::resource::GetResourceInfo(draw_details.copy_destination);
+          if (info != nullptr) {
+            if ((ImGui::TableSetColumnIndex(CAPTURE_PANE_COLUMN_INFO))) {
+              std::stringstream s;
+              s << info->desc.texture.format;
+              if (info->is_swap_chain) {
+                ImGui::TextColored(ImVec4(0, 255, 0, 255), "%s", s.str().c_str());
+              } else if (info->upgraded) {
+                ImGui::TextColored(ImVec4(0, 255, 255, 255), "%s", s.str().c_str());
+              } else if (info->clone.handle != 0u) {
+                ImGui::TextColored(ImVec4(255, 255, 0, 255), "%s", s.str().c_str());
+              } else {
+                ImGui::TextUnformatted(s.str().c_str());
+              }
+            }
+          }
         }
       }
 
@@ -1601,7 +2358,7 @@ void RenderCapturePane(reshade::api::device* device, DeviceData* data) {
     }
 
     ImGui::EndTable();
-  }  // BeginTable
+  }  // namespace
 }
 
 enum ShaderPaneColumns : uint8_t {
@@ -1624,12 +2381,13 @@ void RenderShadersPane(reshade::api::device* device, DeviceData* data) {
           ImGuiTableFlags_BordersInner | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY
               | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_Hideable,
           ImVec2(0, 0))) {
-    ImGui::TableSetupColumn("Hash", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 16.0f);
-    ImGui::TableSetupColumn("Alias", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 16.0f);
-    ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_NoHide);
-    ImGui::TableSetupColumn("Options", ImGuiTableColumnFlags_NoHide);
-    ImGui::TableSetupColumn("Snapshot", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, 16.0f);
+    const auto char_width = ImGui::CalcTextSize("0").x;
+    ImGui::TableSetupColumn("Hash", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, char_width * 10.f);
+    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthFixed, char_width * 6.0f);
+    ImGui::TableSetupColumn("Alias", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthStretch, -1.f);
+    ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, (char_width * 8.f) + 20.f);
+    ImGui::TableSetupColumn("Options", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 3.f * ((char_width * 4.f) + (ImGui::GetStyle().FramePadding.x * 2) + 8.f));
+    ImGui::TableSetupColumn("Snapshot", ImGuiTableColumnFlags_None | ImGuiTableColumnFlags_WidthFixed, char_width * 3.f);
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableHeadersRow();
 
@@ -1683,7 +2441,12 @@ void RenderShadersPane(reshade::api::device* device, DeviceData* data) {
       if (ImGui::TableSetColumnIndex(SHADER_PANE_COLUMN_ALIAS)) {
         ImGui::PushID(cell_index_id++);
         ImGui::AlignTextToFramePadding();
-        RenderFileAlias(shader_details->disk_shader);
+        if (!RenderFileAlias(shader_details->disk_shader)) {
+          auto entrypoint = GetEntryPointForShaderDetails(device, data, shader_details);
+          if (!entrypoint.empty() && entrypoint != "main") {
+            ImGui::TextUnformatted(entrypoint.c_str());
+          }
+        }
         ImGui::PopID();
       }
 
@@ -1784,9 +2547,7 @@ void RenderShadersPane(reshade::api::device* device, DeviceData* data) {
 
       if (ImGui::TableSetColumnIndex(SHADER_PANE_COLUMN_SNAPSHOT)) {  // Snapshot
         ImGui::PushID(cell_index_id++);
-        if (snapshot_index == -1) {
-          ImGui::TextUnformatted("");
-        } else {
+        if (snapshot_index != -1) {
           ImGui::Text("%03d", snapshot_index);
         }
         ImGui::PopID();
@@ -1794,7 +2555,7 @@ void RenderShadersPane(reshade::api::device* device, DeviceData* data) {
       drawn_hashes.emplace(shader_details->shader_hash);
     };
 
-    for (auto& draw_details : data->draw_details) {
+    for (auto& draw_details : data->draw_details_list) {
       for (const auto& pipeline_bind : draw_details.pipeline_binds) {
         for (const auto& shader_hash : pipeline_bind.shader_hashes) {
           if (shader_hash == 0u) continue;
@@ -1817,7 +2578,7 @@ void RenderShaderDefinesPane(reshade::api::device* device, DeviceData* data) {
   static ImGuiTreeNodeFlags tree_node_flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_SpanFullWidth;
   if (ImGui::BeginTable(
           "##ShaderDefinesTable",
-          4,
+          3,
           ImGuiTableFlags_BordersInner | ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH
               | ImGuiTableFlags_Resizable
               | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_ScrollY,
@@ -1943,6 +2704,7 @@ void RenderSettingsPane(reshade::api::device* device, DeviceData* data) {
     DrawSettingBoolCheckbox("Show Pixel Shaders", "SnapshotPaneShowPixelShaders", &snapshot_pane_show_pixel_shaders);
     DrawSettingBoolCheckbox("Show Compute Shaders", "SnapshotPaneShowComputeShaders", &snapshot_pane_show_compute_shaders);
     DrawSettingBoolCheckbox("Expand All Nodes", "SnapshotPaneExpandAllNodes", &snapshot_pane_expand_all_nodes);
+    DrawSettingBoolCheckbox("Filter Resources by Shader Use", "SnapshotPaneFilterResourcesByShaderUse", &snapshot_pane_filter_resources_by_shader_use);
     DrawSettingBoolCheckbox("Show Blends", "SnapshotPaneShowBlends", &snapshot_pane_show_blends);
     std::shared_lock lock(device_data_list_mutex);
     static std::string current_item;
@@ -2012,58 +2774,22 @@ void RenderSettingsPane(reshade::api::device* device, DeviceData* data) {
 
 void RenderShaderViewDisassembly(reshade::api::device* device, DeviceData* data, ShaderDetails* shader_details) {
   std::string disassembly_string;
-  bool failed = false;
-  if (std::holds_alternative<std::nullopt_t>(shader_details->disassembly)) {
-    // Never disassembled
-    try {
-      if (shader_details->shader_data.empty()) {
-        reshade::api::pipeline pipeline = {0};
-        {
-          // Get pipeline handle
-          auto* shader_device_data = renodx::utils::shader::GetShaderDeviceData(device);
-          std::shared_lock lock(shader_device_data->mutex);
-          auto pair = shader_device_data->shader_pipeline_handles.find(shader_details->shader_hash);
-          if (pair == shader_device_data->shader_pipeline_handles.end()) {
-            throw std::exception("Shader data not found.");
-          }
-          auto& pipeline_handles = pair->second;
-          if (pipeline_handles.empty()) throw std::exception("Shader data not found.");
-          pipeline = {*(pipeline_handles.begin())};
-        }
+  bool ok = ComputeDisassemblyForShaderDetails(device, data, shader_details);
 
-        auto shader_data = renodx::utils::shader::GetShaderData(pipeline, shader_details->shader_hash);
-        if (!shader_data.has_value()) throw std::exception("Invalid shader selection");
-        shader_details->shader_data = shader_data.value();
-      }
-      if (renodx::utils::device::IsDirectX(device)) {
-        shader_details->disassembly = renodx::utils::shader::compiler::directx::DisassembleShader(shader_details->shader_data);
-      } else if (device->get_api() == reshade::api::device_api::opengl) {
-        shader_details->disassembly = std::string(
-            shader_details->shader_data.data(),
-            shader_details->shader_data.data() + shader_details->shader_data.size());
-      }
-    } catch (std::exception& e) {
-      shader_details->disassembly = e;
-    }
-  }
-
-  if (std::holds_alternative<std::exception>(shader_details->disassembly)) {
-    disassembly_string.assign(std::get<std::exception>(shader_details->disassembly).what());
-    failed = true;
-  } else if (std::holds_alternative<std::string>(shader_details->disassembly)) {
+  if (ok) {
     disassembly_string.assign(std::get<std::string>(shader_details->disassembly));
-  }
-
-  if (failed) {
+  } else {
+    disassembly_string.assign(std::get<std::exception>(shader_details->disassembly).what());
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(192, 0, 0, 255));
   }
+
   ImGui::InputTextMultiline(
       "##disassemblyCode",
       const_cast<char*>(disassembly_string.c_str()),
       disassembly_string.length(),
       ImVec2(-4, -4),
       ImGuiInputTextFlags_ReadOnly);
-  if (failed) {
+  if (!ok) {
     ImGui::PopStyleColor();
   }
 }
@@ -2210,25 +2936,51 @@ void RenderShaderView(reshade::api::device* device, DeviceData* data, SettingSel
 }
 void RenderResourceViewHistory(reshade::api::device* device, DeviceData* data, reshade::api::resource resource) {
   auto current_snapshot_index = 0;
-  for (auto& draw_details : data->draw_details) {
-    for (auto& [slot, resource_view_details] : draw_details.srv_binds) {
+  for (auto& draw_details : data->draw_details_list) {
+    for (auto& [slot_space, resource_view_details] : draw_details.srv_binds) {
+      const auto& slot = slot_space.first;
+      const auto& space = slot_space.second;
       if (resource_view_details.resource.handle != resource.handle) continue;
-      ImGui::Text((slot.second == 0) ? "Snapshot %03d: SRV%d" : "SRV%d,space%d",
-                  current_snapshot_index,
-                  slot.first,
-                  slot.second);
+      if (draw_details.resource_binds.has_value()) {
+        if (std::ranges::none_of(*draw_details.resource_binds, [&slot, &space](const ResourceBind& bind) {
+              return bind.type == ResourceBind::BindType::SRV && bind.slot == slot && bind.space == space;
+            })) {
+          continue;
+        }
+      }
+      if (space == 0) {
+        ImGui::Text("Snapshot %03d: T%d", current_snapshot_index, slot);
+      } else {
+        ImGui::Text("Snapshot %03d: T%d,space%d", current_snapshot_index, slot, space);
+      }
     }
-    for (const auto& [slot, resource_view_details] : draw_details.uav_binds) {
+    for (const auto& [slot_space, resource_view_details] : draw_details.uav_binds) {
+      const auto& slot = slot_space.first;
+      const auto& space = slot_space.second;
       if (resource_view_details.resource.handle != resource.handle) continue;
-      ImGui::Text((slot.second == 0) ? "Snapshot %03d: UAV%d" : "UAV%d,space%d",
-                  current_snapshot_index,
-                  slot.first,
-                  slot.second);
+      if (draw_details.resource_binds.has_value()) {
+        if (std::ranges::none_of(*draw_details.resource_binds, [&slot, &space](const ResourceBind& bind) {
+              return bind.type == ResourceBind::BindType::UAV && bind.slot == slot && bind.space == space;
+            })) {
+          continue;
+        }
+      }
+      if (space == 0) {
+        ImGui::Text("Snapshot %03d: U%d", current_snapshot_index, slot);
+      } else {
+        ImGui::Text("Snapshot %03d: U%d,space%d", current_snapshot_index, slot, space);
+      }
     }
     for (const auto& [slot, resource_view_details] : draw_details.render_targets) {
       if (resource_view_details.resource.handle != resource.handle) continue;
       ImGui::Text("Snapshot %03d: RTV%d", current_snapshot_index,
                   slot);
+    }
+    if (draw_details.copy_source == resource.handle) {
+      ImGui::Text("Snapshot %03d: Copy Source", current_snapshot_index);
+    }
+    if (draw_details.copy_destination == resource.handle) {
+      ImGui::Text("Snapshot %03d: Copy Destination", current_snapshot_index);
     }
 
     current_snapshot_index++;
@@ -2290,8 +3042,8 @@ void RenderResourceViewPreview(reshade::api::device* device, DeviceData* data, r
 
   auto available_size = ImGui::GetContentRegionAvail();
   auto output_size = ImVec2(
-      info->desc.texture.width,
-      info->desc.texture.height);
+      static_cast<float>(info->desc.texture.width),
+      static_cast<float>(info->desc.texture.height));
   auto x_overage = output_size.x - available_size.x;
   auto y_overage = output_size.y - available_size.y;
   auto scale = 1.f;
@@ -2484,6 +3236,7 @@ void InitializeUserSettings() {
            {"SnapshotPaneShowComputeShaders", &snapshot_pane_show_compute_shaders},
            {"SnapshotPaneShowBlends", &snapshot_pane_show_blends},
            {"SnapshotPaneExpandAllNodes", &snapshot_pane_expand_all_nodes},
+           {"SnapshotPaneFilterResourcesByShaderUse", &snapshot_pane_filter_resources_by_shader_use},
            {"ShadersPaneShowVertexShaders", &shaders_pane_show_vertex_shaders},
            {"ShadersPaneShowPixelShaders", &shaders_pane_show_pixel_shaders},
            {"ShadersPaneShowComputeShaders", &shaders_pane_show_compute_shaders},
@@ -2532,24 +3285,24 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
   if (data->runtime == nullptr) {
     data->runtime = runtime;
   }
-  static auto setting_window_size = 0;
-  static auto setting_side_sheet_width = 0;
+
+  static auto setting_side_sheet_width = 96.f;
+
+  const auto x_height = ImGui::CalcTextSize("x").y;
+
+  ImGui::SetNextWindowSizeConstraints({SETTING_NAV_RAIL_SIZE + 128 + 128 + 96, (2 * x_height) + (SETTING_NAV_RAIL_SIZE * 4.f)}, {FLT_MAX, FLT_MAX});
 
   if (ImGui::BeginChild("DevKit", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_MenuBar)) {
-    {
-      auto width = ImGui::CalcItemWidth();
-      if (setting_window_size != width) {
-        setting_window_size = width;
-        setting_side_sheet_width = 0;
-      }
-    }
-
     RenderMenuBar(device, data);
 
     RenderNavRail(device, data);
 
     ImGui::SameLine();
-    if (ImGui::BeginChild("##LayoutList", ImVec2(72, 0), ImGuiChildFlags_ResizeX)) {
+
+    auto size_remaining = ImGui::GetContentRegionAvail().x;
+
+    ImGui::SetNextWindowSizeConstraints({128.f, 0}, {size_remaining - 8 - 128 - setting_side_sheet_width, FLT_MAX});
+    if (ImGui::BeginChild("##LayoutList", ImVec2(0, 0), ImGuiChildFlags_ResizeX)) {
       switch (setting_nav_item) {
         case 0:
           RenderCapturePane(device, data);
@@ -2571,7 +3324,8 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
 
     ImGui::SameLine();
 
-    ImGui::SetNextWindowSizeConstraints({0, 0}, {ImGui::GetContentRegionAvail().x - setting_side_sheet_width, FLT_MAX});
+    size_remaining = ImGui::GetContentRegionAvail().x;
+    ImGui::SetNextWindowSizeConstraints({size_remaining - 4 - setting_side_sheet_width, 0}, {size_remaining - 96, FLT_MAX});
     if (ImGui::BeginChild("##Details", {0, 0}, ImGuiChildFlags_ResizeX)) {
       if (!setting_open_tabs.empty()) {
         if (ImGui::BeginTabBar("##SelectedTabs", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll)) {
@@ -2591,6 +3345,9 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
     }
     ImGui::EndChild();
     ImGui::SameLine();
+
+    size_remaining = ImGui::GetContentRegionAvail().x;
+    ImGui::SetNextWindowSizeConstraints({96, 0}, {FLT_MAX, FLT_MAX});
     if (ImGui::BeginChild("##SideSheet", {0, 0}, ImGuiChildFlags_AutoResizeX)) {
       auto selection = GetCurrentSelection();
       if (selection.has_value()) {
@@ -2603,8 +3360,7 @@ void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
           ImGui::RadioButton("Preview", &selection->get().resource_view, 1);
         }
       }
-
-      setting_side_sheet_width = 96;
+      setting_side_sheet_width = ImGui::CalcItemWidth();
     }
     ImGui::EndChild();
   }
@@ -2624,12 +3380,13 @@ void OnPresent(
     setting_shader_defines_changed = false;
   }
 
+  auto* device = swapchain->get_device();
+  DeviceData* data = nullptr;
   if (setting_live_reload) {
     if (!renodx::utils::shader::compiler::watcher::IsEnabled()) {
       renodx::utils::shader::compiler::watcher::Start();
     }
-    auto* device = swapchain->get_device();
-    auto* data = renodx::utils::data::Get<DeviceData>(device);
+    data = renodx::utils::data::Get<DeviceData>(device);
     std::unique_lock lock(data->mutex);
     LoadDiskShaders(device, data, true);
   } else {
@@ -2642,8 +3399,24 @@ void OnPresent(
     renodx::utils::shader::dump::DumpAllPending();
   }
 
-  if (swapchain->get_device() == snapshot_device) {
+  if (snapshot_device == nullptr) {
+    if (snapshot_queued_device == device) {
+      if (data == nullptr) {
+        data = renodx::utils::data::Get<DeviceData>(device);
+      }
+      data->draw_details_list.clear();
+      snapshot_device = device;
+      snapshot_queued_device = nullptr;
+    }
+  } else if (device == snapshot_device) {
     snapshot_device = nullptr;
+    if (data == nullptr) {
+      data = renodx::utils::data::Get<DeviceData>(device);
+    }
+    std::unique_lock lock(data->mutex);
+    std::ranges::sort(data->draw_details_list, [](const DrawDetails& a, const DrawDetails& b) {
+      return a.timestamp < b.timestamp;
+    });
   }
 }
 
@@ -2688,6 +3461,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       reshade::register_event<reshade::addon_event::init_pipeline>(OnInitPipeline);
       reshade::register_event<reshade::addon_event::bind_pipeline>(OnBindPipeline);
       reshade::register_event<reshade::addon_event::destroy_pipeline>(OnDestroyPipeline);
+      reshade::register_event<reshade::addon_event::copy_resource>(OnCopyResource);
       reshade::register_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
 
       reshade::register_event<reshade::addon_event::push_descriptors>(OnPushDescriptors);
@@ -2717,6 +3491,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       reshade::unregister_event<reshade::addon_event::init_pipeline>(OnInitPipelineTrackAddons);
       reshade::unregister_event<reshade::addon_event::init_pipeline>(OnInitPipeline);
       reshade::unregister_event<reshade::addon_event::bind_pipeline>(OnBindPipeline);
+      reshade::unregister_event<reshade::addon_event::copy_resource>(OnCopyResource);
       reshade::unregister_event<reshade::addon_event::destroy_pipeline>(OnDestroyPipeline);
       reshade::unregister_event<reshade::addon_event::push_descriptors>(OnPushDescriptors);
       reshade::unregister_event<reshade::addon_event::draw>(OnDraw);

@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <include/reshade_api_resource.hpp>
 #include <initializer_list>
 #include <mutex>
 #include <optional>
@@ -25,6 +26,7 @@
 
 #include <include/reshade.hpp>
 
+#include "../utils/bitwise.hpp"
 #include "../utils/data.hpp"
 #include "../utils/descriptor.hpp"
 #include "../utils/format.hpp"
@@ -215,12 +217,21 @@ static void CheckSwapchainSize(
     // if (window_rect.top == 0 && window_rect.left == 0) return;
 
     RemoveWindowBorder(output_window);
-    SetWindowPos(
-        output_window,
-        HWND_TOP,
-        monitor_info.rcMonitor.left, monitor_info.rcMonitor.top,
-        screen_width, screen_height,
-        SWP_FRAMECHANGED);
+
+    RECT rect = {NULL};
+    if (GetWindowRect(output_window, &rect) != 0) {
+      if (rect.left != monitor_info.rcMonitor.left
+          || rect.top != monitor_info.rcMonitor.top
+          || rect.right - rect.left != screen_width
+          || rect.bottom - rect.top != screen_height) {
+        SetWindowPos(
+            output_window,
+            HWND_TOP,
+            monitor_info.rcMonitor.left, monitor_info.rcMonitor.top,
+            screen_width, screen_height,
+            SWP_ASYNCWINDOWPOS | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOZORDER);
+      }
+    }
   }
 }
 
@@ -990,6 +1001,15 @@ static bool OnCreateSwapchain(reshade::api::swapchain_desc& desc, void* hwnd) {
     upgraded_swapchain_desc.reset();
     return false;
   };
+
+  if (!renodx::utils::bitwise::HasFlag(desc.back_buffer.usage, reshade::api::resource_usage::render_target)) {
+    std::stringstream s;
+    s << "mods::swapchain::OnCreateSwapchain(Abort from not used for rendering: ";
+    s << PRINT_PTR(reinterpret_cast<uintptr_t>(hwnd));
+    s << ")";
+    reshade::log::message(reshade::log::level::info, s.str().c_str());
+    return abort_modification();
+  }
 
   if (renodx::utils::platform::IsToolWindow(static_cast<HWND>(hwnd))) {
     std::stringstream s;
