@@ -67,14 +67,16 @@ bool hdr_enabled = false;
 renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0x88EB22C4), // lutsample, beginning fight, tutorial
     CustomShaderEntry(0xDE0167BA), // lutsample, dramatic lut
+    CustomShaderEntry(0xAEE14B47), // sdr output
     ShaderOnDrawCallback(0x1C876972, [](reshade::api::command_list* cmd_list) {
         hdr_enabled = true; // HDR output shader
         return false; // skip draw (black screen with scRGB reno swapchain otherwise)
     }),
-    ShaderOnDrawCallback(0xAEE14B47, [](reshade::api::command_list* cmd_list) {
-        hdr_enabled = false; // SDR output shader
-        return false; // skip draw (black screen with scRGB reno swapchain otherwise)
-    }),
+    //ShaderOnDrawCallback(0xAEE14B47, [](reshade::api::command_list* cmd_list) {
+    //    hdr_enabled = false; // SDR output shader
+    //    return false; // skip draw (black screen with scRGB reno swapchain otherwise)
+    //}),
+    BypassShaderEntry(0x654F1275), // weird shader
 };
 
 ShaderInjectData shader_injection;
@@ -487,10 +489,10 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       //renodx::mods::swapchain::expected_constant_buffer_index = 13;
       //renodx::mods::swapchain::expected_constant_buffer_space = 50;
 
-      renodx::mods::swapchain::use_resource_cloning = true; 
-      renodx::mods::swapchain::swap_chain_proxy_vertex_shader = __swap_chain_proxy_vertex_shader;
-      renodx::mods::swapchain::swap_chain_proxy_pixel_shader = __swap_chain_proxy_pixel_shader;
-      renodx::mods::swapchain::swapchain_proxy_revert_state = true;
+      //renodx::mods::swapchain::use_resource_cloning = true; 
+      //renodx::mods::swapchain::swap_chain_proxy_vertex_shader = __swap_chain_proxy_vertex_shader;
+      //renodx::mods::swapchain::swap_chain_proxy_pixel_shader = __swap_chain_proxy_pixel_shader;
+      //renodx::mods::swapchain::swapchain_proxy_revert_state = true;
 
       // RG11B10_float
       //renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
@@ -574,6 +576,22 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
           .old_format = reshade::api::format::r16g16b16a16_typeless,
           .new_format = reshade::api::format::r16g16b16a16_float,
           .use_resource_view_cloning = true,
+          .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
+      });
+
+      // output sdr shader
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::b8g8r8a8_unorm_srgb,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+          //.use_resource_view_cloning = true,
+          .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
+      });
+
+      // output sdr shader
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::b8g8r8a8_typeless,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+          //.use_resource_view_cloning = true,
           .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
       });
 
