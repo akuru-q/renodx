@@ -2,6 +2,7 @@
 
 #define ImTextureID ImU64
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -63,23 +64,50 @@ struct Setting {
   float min = 0.f;
   float max = 100.f;
   std::string format = "%.0f";
-  bool (*is_enabled)() = [] {
+
+  std::function<bool()> is_enabled = [] {
     return true;
   };
 
-  float (*parse)(float value) = [](float value) {
+  std::function<float(float value)> parse = [](float value) {
     return value;
   };
 
-  void (*on_change)() = [] {};
+  std::function<void()> on_change = [] {};
 
-  void (*on_change_value)(float previous, float current) = [](float previous, float current) {};
+  std::function<void(float previous, float current)> on_change_value = [](float previous, float current) {};
 
   // Return true to save settings
-  bool (*on_click)() = [] { return true; };
+  std::function<bool()> on_click = [] { return true; };
 
   // Return true if value is changed
-  bool (*on_draw)() = [] { return false; };
+  std::function<bool()> on_draw = [] { return false; };
+
+  bool is_global = false;
+
+  std::function<bool()> is_visible = [] {
+    return true;
+  };
+
+  bool is_sticky = false;
+
+  float value = default_value;
+  int value_as_int = static_cast<int>(default_value);
+
+  [[nodiscard]]
+  float GetMax() const {
+    switch (this->value_type) {
+      case SettingValueType::BOOLEAN:
+        return 1.f;
+      case SettingValueType::INTEGER:
+        return this->labels.empty()
+                   ? this->max
+                   : (this->labels.size() - 1);
+      case SettingValueType::FLOAT:
+      default:
+        return this->max;
+    }
+  }
 
   [[nodiscard]]
   float GetValue() const {
@@ -109,29 +137,6 @@ struct Setting {
     }
     return this;
   }
-
-  float value = default_value;
-  int value_as_int = static_cast<int>(default_value);
-
-  [[nodiscard]]
-  float GetMax() const {
-    switch (this->value_type) {
-      case SettingValueType::BOOLEAN:
-        return 1.f;
-      case SettingValueType::INTEGER:
-        return this->labels.empty()
-                   ? this->max
-                   : (this->labels.size() - 1);
-      case SettingValueType::FLOAT:
-      default:
-        return this->max;
-    }
-  }
-
-  bool is_global = false;
-  bool (*is_visible)() = [] {
-    return true;
-  };
 };
 
 using Settings = std::vector<Setting*>;
@@ -315,34 +320,39 @@ static void SaveGlobalSettings() {
 // https://pthom.github.io/imgui_manual_online/manual/imgui_manual.html
 static void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
   bool changed_preset = false;
-  if (use_presets) {
-    changed_preset = ImGui::SliderInt(
-        "Preset",
-        &preset_index,
-        0,
-        preset_strings.size() - 1,
-        preset_strings[preset_index].c_str(),
-        ImGuiSliderFlags_NoInput);
-  }
+  bool has_drawn_presets = !use_presets;
 
-  if (changed_preset) {
-    switch (preset_index) {
-      case 0:
-        if (on_preset_off != nullptr) {
-          on_preset_off();
-        }
-        break;
-      case 1:
-        LoadSettings(global_name + "-preset1");
-        break;
-      case 2:
-        LoadSettings(global_name + "-preset2");
-        break;
-      case 3:
-        LoadSettings(global_name + "-preset3");
-        break;
+  auto draw_presets = [&]() {
+    if (use_presets) {
+      changed_preset = ImGui::SliderInt(
+          "Preset",
+          &preset_index,
+          0,
+          preset_strings.size() - 1,
+          preset_strings[preset_index].c_str(),
+          ImGuiSliderFlags_NoInput);
     }
-  }
+
+    if (changed_preset) {
+      switch (preset_index) {
+        case 0:
+          if (on_preset_off != nullptr) {
+            on_preset_off();
+          }
+          break;
+        case 1:
+          LoadSettings(global_name + "-preset1");
+          break;
+        case 2:
+          LoadSettings(global_name + "-preset2");
+          break;
+        case 3:
+          LoadSettings(global_name + "-preset3");
+          break;
+      }
+    }
+    has_drawn_presets = true;
+  };
 
   bool any_change = false;
   std::string last_section;
@@ -352,35 +362,60 @@ static void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
   bool has_indent = false;
   for (auto* setting : *settings) {
     if (setting->is_visible != nullptr && !setting->is_visible()) continue;
+
+    if (!setting->is_sticky) {
+      if (!has_drawn_presets) {
+        draw_presets();
+      }
+    }
+
     int styles_pushed = 0;
     if (setting->tint.has_value()) {
       auto target_rgb = ImVec4FromHex(setting->tint.value());
       float target_hsv[3] = {};
       ImGui::ColorConvertRGBtoHSV(target_rgb.x, target_rgb.y, target_rgb.z, target_hsv[0], target_hsv[1], target_hsv[2]);
 
-      const auto styles = {
-          ImGuiCol_FrameBg,
-          ImGuiCol_FrameBgHovered,
-          ImGuiCol_FrameBgActive,
-          ImGuiCol_SliderGrab,
-          ImGuiCol_SliderGrabActive,
-          ImGuiCol_Button,
-          ImGuiCol_ButtonActive,
-          ImGuiCol_ButtonHovered,
-          ImGuiCol_TextSelectedBg,
-          ImGuiCol_Header,
-          ImGuiCol_HeaderHovered,
-          ImGuiCol_HeaderActive,
-      };
-      for (const auto style : styles) {
-        auto style_rgb = ImGui::GetStyleColorVec4(style);
-        float style_hsv[3] = {};
-        ImGui::ColorConvertRGBtoHSV(style_rgb.x, style_rgb.y, style_rgb.z, style_hsv[0], style_hsv[1], style_hsv[2]);
+      static const auto COMMON_STYLES =
+          {
+              ImGuiCol_FrameBg,
+              ImGuiCol_FrameBgHovered,
+              ImGuiCol_FrameBgActive,
+              ImGuiCol_SliderGrab,
+              ImGuiCol_SliderGrabActive,
+              ImGuiCol_Button,
+              ImGuiCol_ButtonActive,
+              ImGuiCol_ButtonHovered,
+              ImGuiCol_TextSelectedBg,
+              ImGuiCol_Header,
+              ImGuiCol_HeaderHovered,
+              ImGuiCol_HeaderActive,
+          };
 
-        ImGui::ColorConvertHSVtoRGB(target_hsv[0], style_hsv[1], style_hsv[2], style_rgb.x, style_rgb.y, style_rgb.z);
-        ImGui::PushStyleColor(style, style_rgb);
+      static const auto TEXT_STYLES = {
+          ImGuiCol_Text,
+          ImGuiCol_TextDisabled,
+      };
+      if (setting->value_type == SettingValueType::TEXT
+          || setting->value_type == SettingValueType::TEXT_NOWRAP) {
+        for (const auto style : TEXT_STYLES) {
+          auto style_rgb = ImGui::GetStyleColorVec4(style);
+          style_rgb.x = target_rgb.x;
+          style_rgb.y = target_rgb.y;
+          style_rgb.z = target_rgb.z;
+          ImGui::PushStyleColor(style, style_rgb);
+        }
+        styles_pushed = TEXT_STYLES.size();
+      } else {
+        for (const auto style : COMMON_STYLES) {
+          auto style_rgb = ImGui::GetStyleColorVec4(style);
+          float style_hsv[3] = {};
+          ImGui::ColorConvertRGBtoHSV(style_rgb.x, style_rgb.y, style_rgb.z, style_hsv[0], style_hsv[1], style_hsv[2]);
+
+          ImGui::ColorConvertHSVtoRGB(target_hsv[0], style_hsv[1], style_hsv[2], style_rgb.x, style_rgb.y, style_rgb.z);
+          ImGui::PushStyleColor(style, style_rgb);
+        }
+        styles_pushed = COMMON_STYLES.size();
       }
-      styles_pushed = styles.size();
     }
 
     if (last_section != setting->section) {
@@ -534,6 +569,9 @@ static void OnRegisterOverlay(reshade::api::effect_runtime* runtime) {
     ImGui::TreePop();
   }
 
+  if (!has_drawn_presets) {
+    draw_presets();
+  }
   if (!changed_preset && any_change) {
     switch (preset_index) {
       case 1:

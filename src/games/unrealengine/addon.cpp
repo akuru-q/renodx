@@ -161,6 +161,19 @@ renodx::utils::settings::Settings settings = {
         .parse = [](float value) { return value * 0.01f; },
     },
     new renodx::utils::settings::Setting{
+        .key = "ColorGradeHueShift",
+        .binding = &shader_injection.color_grade_hue_shift,
+        .default_value = 50.f,
+        .label = "Hue Shift",
+        .section = "Scene Grading",
+        .tooltip = "Selects strength of hue shifts from per-channel grading.",
+        .min = 0.f,
+        .max = 100.f,
+        .is_enabled = []() { return shader_injection.tone_map_type >= 1; },
+        .parse = [](float value) { return value * 0.01f; },
+        .is_visible = []() { return current_settings_mode >= 2; },
+    },
+    new renodx::utils::settings::Setting{
         .key = "ColorGradeExposure",
         .binding = &shader_injection.color_grade_exposure,
         .default_value = 1.f,
@@ -370,26 +383,6 @@ void OnPresetOff() {
   renodx::utils::settings::UpdateSetting("ColorGradeColorSpace", 0.f);
 }
 
-void OnInitDevice(reshade::api::device* device) {
-  if (device->get_api() == reshade::api::device_api::d3d11) {
-    renodx::mods::swapchain::swap_chain_proxy_vertex_shader = __swap_chain_proxy_vertex_shader_dx11;
-    renodx::mods::swapchain::swap_chain_proxy_pixel_shader = __swap_chain_proxy_pixel_shader_dx11;
-    return;
-  }
-
-  if (device->get_api() == reshade::api::device_api::d3d12) {
-    reshade::log::message(reshade::log::level::info, "Switching to DX12...");
-    // Switch over to DX12
-
-    renodx::mods::swapchain::swap_chain_proxy_vertex_shader = __swap_chain_proxy_vertex_shader_dx12;
-    renodx::mods::swapchain::swap_chain_proxy_pixel_shader = __swap_chain_proxy_pixel_shader_dx12;
-    // renodx::mods::shader::custom_shaders doesn't use the shader data, just hashes
-    // Update on utils::shaders instead
-
-    reshade::log::message(reshade::log::level::info, "Added replacements.");
-  }
-}
-
 bool fired_on_init_swapchain = false;
 
 void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize) {
@@ -399,6 +392,58 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize) {
     settings[2]->default_value = peak.value();
     settings[2]->can_reset = true;
     fired_on_init_swapchain = true;
+  }
+}
+
+// Per game resource upgrades, where we need custom paramaters -- the sliders (output size/ratio/all) don't work
+void AddExpedition33Upgrades() {
+  // Portrait letterboxes screens
+  renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      .old_format = reshade::api::format::r10g10b10a2_unorm,
+      .new_format = reshade::api::format::r16g16b16a16_float,
+      .use_resource_view_cloning = true,
+      .aspect_ratio = 2880.f / 2160.f,
+  });
+
+  renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      .old_format = reshade::api::format::r10g10b10a2_unorm,
+      .new_format = reshade::api::format::r16g16b16a16_float,
+      .use_resource_view_cloning = true,
+      .aspect_ratio = 3840.f / 1608.f,
+  });
+  // DLAA support
+  renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      .old_format = reshade::api::format::r10g10b10a2_unorm,
+      .new_format = reshade::api::format::r16g16b16a16_float,
+      .use_resource_view_cloning = true,
+      .aspect_ratio = 3044.f / 1712.f,
+  });
+}
+
+void AddAvowedUpgrades() {
+  renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      .old_format = reshade::api::format::r10g10b10a2_unorm,
+      .new_format = reshade::api::format::r16g16b16a16_float,
+      .use_resource_view_cloning = true,
+      .aspect_ratio = 4360.f / 2160.f,
+  });
+}
+
+void AddGamePatches() {
+  auto process_path = renodx::utils::platform::GetCurrentProcessPath();
+  auto filename = process_path.filename().string();
+  auto product_name = renodx::utils::platform::GetProductName(process_path);
+
+  // Clair Obscur Expedition 33
+  if (product_name == "Expedition 33") {
+    AddExpedition33Upgrades();
+    reshade::log::message(reshade::log::level::info, std::format("Applied patches for {} ({}).", filename, product_name).c_str());
+  }
+
+  // Avowed
+  if (product_name == "Avowed") {
+    AddAvowedUpgrades();
+    reshade::log::message(reshade::log::level::info, std::format("Applied patches for {} ({}).", filename, product_name).c_str());
   }
 }
 
@@ -437,6 +482,20 @@ const std::unordered_map<
                 {"Upgrade_R10G10B10A2_UNORM", UPGRADE_TYPE_OUTPUT_SIZE},
             },
         },
+        {
+            "Expedition 33",
+            {
+                {"Upgrade_B8G8R8A8_TYPELESS", UPGRADE_TYPE_OUTPUT_SIZE},
+                {"Upgrade_B8G8R8A8_UNORM", UPGRADE_TYPE_OUTPUT_SIZE},
+                {"Upgrade_R10G10B10A2_UNORM", UPGRADE_TYPE_OUTPUT_SIZE},
+            },
+        },
+        {
+            "Avowed",
+            {
+                {"Upgrade_R10G10B10A2_UNORM", UPGRADE_TYPE_OUTPUT_SIZE},
+            },
+        },
 };
 
 float g_dump_shaders = 0;
@@ -450,7 +509,7 @@ bool OnDrawForLUTDump(
     uint32_t instance_count,
     uint32_t first_vertex,
     uint32_t first_instance) {
-  if (g_dump_shaders == 0) return false;
+  if (g_dump_shaders == 0) return false; 
 
   auto* shader_state = renodx::utils::shader::GetCurrentState(cmd_list);
 
@@ -747,17 +806,31 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
   switch (fdw_reason) {
     case DLL_PROCESS_ATTACH:
       if (!reshade::register_addon(h_module)) return FALSE;
-      reshade::register_event<reshade::addon_event::init_device>(OnInitDevice);
+
       reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
 
       renodx::mods::shader::on_create_pipeline_layout = [](auto, auto params) {
-        auto process_path = renodx::utils::platform::GetCurrentProcessPath();
-        auto product_name = renodx::utils::platform::GetProductName(process_path);
-        auto param_count = params.size();
         if (params.size() >= 20) return false;
+
+        auto process_path = renodx::utils::platform::GetCurrentProcessPath();
+
+        auto filename = process_path.filename().string();
+
+        if (filename == "RoboCop-Win64-Shipping.exe") return true;  // RoboCop: Rogue City
+
+        auto product_name = renodx::utils::platform::GetProductName(process_path);
 
         if (product_name == "Jusant") return true;
         if (product_name == "InfinityNikki") return true;
+        if (product_name == "Lords of the Fallen") return true;  // Lords of the Fallen 2023
+        if (product_name == "NobodyWantsToDie") return true;
+        if (product_name == "Ready Or Not") return true;
+        if (product_name == "Eternal Strands") return true;
+        if (product_name == "Expedition 33") return true;
+        if (product_name == "YKS") return true;  // Slitterhead
+        if (product_name == "Split Fiction") return true;
+        if (product_name == "RSDragonwilds") return true;
+        if (product_name == "Enotria: The Last Song") return true;
 
         // UE DX12 has a 4 param root sig that crashes if modified. Track for now
         return std::ranges::any_of(params, [](auto param) {
@@ -781,8 +854,22 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
         renodx::mods::swapchain::expected_constant_buffer_space = 50;
 
         renodx::mods::swapchain::use_resource_cloning = true;
-        renodx::mods::swapchain::swap_chain_proxy_vertex_shader = __swap_chain_proxy_vertex_shader_dx11;
-        renodx::mods::swapchain::swap_chain_proxy_pixel_shader = __swap_chain_proxy_pixel_shader_dx11;
+        renodx::mods::swapchain::swap_chain_proxy_shaders = {
+            {
+                reshade::api::device_api::d3d11,
+                {
+                    .vertex_shader = __swap_chain_proxy_vertex_shader_dx11,
+                    .pixel_shader = __swap_chain_proxy_pixel_shader_dx11,
+                },
+            },
+            {
+                reshade::api::device_api::d3d12,
+                {
+                    .vertex_shader = __swap_chain_proxy_vertex_shader_dx12,
+                    .pixel_shader = __swap_chain_proxy_pixel_shader_dx12,
+                },
+            },
+        };
 
         renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
             .old_format = reshade::api::format::r10g10b10a2_unorm,
@@ -790,6 +877,8 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
             .dimensions = {.width = 32, .height = 32, .depth = 32},
             .resource_tag = 1.f,
         });
+
+        AddGamePatches();
 
         initialized = true;
       }
@@ -808,7 +897,6 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       renodx::utils::shader::Use(fdw_reason);
       renodx::utils::swapchain::Use(fdw_reason);
       renodx::utils::resource::Use(fdw_reason);
-      reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
       reshade::unregister_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
       reshade::unregister_event<reshade::addon_event::draw>(OnDrawForLUTDump);
       reshade::unregister_addon(h_module);
