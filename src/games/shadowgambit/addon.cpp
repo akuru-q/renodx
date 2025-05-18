@@ -194,7 +194,7 @@ renodx::utils::settings::Settings settings = {
   new renodx::utils::settings::Setting{
       .key = "ColorGradeSaturation",
       .binding = &RENODX_TONE_MAP_SATURATION,
-      .default_value = 50.f,
+      .default_value = 45.f,
       .label = "Saturation",
       .section = "Color Grading",
       .max = 100.f,
@@ -254,7 +254,7 @@ renodx::utils::settings::Settings settings = {
         renodx::utils::settings::UpdateSetting("ColorGradeContrast", 80.f);
         renodx::utils::settings::UpdateSetting("ColorGradeSaturation", 80.f);
         renodx::utils::settings::UpdateSetting("ColorGradeHighlightSaturation",50.f);
-        renodx::utils::settings::UpdateSetting("ColorGradeBlowout", 80.f);
+        renodx::utils::settings::UpdateSetting("ColorGradeBlowout", 82.f);
         renodx::utils::settings::UpdateSetting("ColorGradeFlare", 0.f);
         //renodx::utils::settings::UpdateSetting("ToneMapConfiguration", 1.f);
       }
@@ -279,7 +279,7 @@ renodx::utils::settings::Settings settings = {
         renodx::utils::settings::UpdateSetting("ColorGradeContrast", 75.f);
         renodx::utils::settings::UpdateSetting("ColorGradeSaturation", 60.f);
         renodx::utils::settings::UpdateSetting("ColorGradeHighlightSaturation", 50.f);
-        renodx::utils::settings::UpdateSetting("ColorGradeBlowout", 75.f);
+        renodx::utils::settings::UpdateSetting("ColorGradeBlowout", 78.f);
         renodx::utils::settings::UpdateSetting("ColorGradeFlare", 0.f);
         //renodx::utils::settings::UpdateSetting("ToneMapConfiguration", 1.f);
       }
@@ -297,11 +297,11 @@ renodx::utils::settings::Settings settings = {
         }
       },
   },
-  //new renodx::utils::settings::Setting{
-  //      .value_type = renodx::utils::settings::SettingValueType::TEXT,
-  //      .label = "Use ACES with the defaults, or the preconfigured RenoDRT preset.",
-  //      .section = "Instructions",
-  //  },
+  new renodx::utils::settings::Setting{
+      .value_type = renodx::utils::settings::SettingValueType::TEXT,
+      .label = "Leave the in-game gamma slider at its default value of 50!",
+      .section = "Instructions",
+  },
   new renodx::utils::settings::Setting{
       .value_type = renodx::utils::settings::SettingValueType::TEXT,
       .label = "Game mod by akuru, RenoDX Framework by ShortFuse. Special thanks to Voosh for their code!",
