@@ -99,7 +99,7 @@ void main(
   r3.xyzw = t2.Sample(s0_s, v6.xy).xyzw;
 
   r3.rgb = renodx::draw::InvertIntermediatePass(r3.rgb);
-
+  
   //r3.rgb = renodx::tonemap::renodrt::NeutralSDR(r3.rgb);
 
   r0.w = dot(r3.xyz, float3(0.0396819152,0.45802179,0.00609653955));
@@ -672,14 +672,14 @@ void main(
   
   o0.w = r0.w;
 
-  o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
-
   //o0.rgb = renodx::tonemap::UpgradeToneMap(
   //  tonemapped,
   //  neutralSdr,
   //  o0.rgb,
   //  1.f
   //);
+
+  o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
   
   return;
 }

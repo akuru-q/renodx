@@ -25,6 +25,7 @@
 //#define RENODX_SWAP_CHAIN_CLAMP_NITS         10000.f
 #define RENODX_INTERMEDIATE_ENCODING         0.f
 #define RENODX_SWAP_CHAIN_DECODING           0.f
+#define RENODX_SWAP_CHAIN_CLAMP_COLOR_SPACE  renodx::color::convert::COLOR_SPACE_AP1
 
 // Must be 32bit aligned
 // Should be 4x32
