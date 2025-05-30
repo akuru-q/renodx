@@ -142,6 +142,10 @@ static reshade::api::resource_desc GetBackBufferDesc(reshade::api::device* devic
   reshade::api::resource_desc desc = {};
   {
     auto* device_data = renodx::utils::data::Get<DeviceData>(device);
+    if (device_data == nullptr) {
+      reshade::log::message(reshade::log::level::error, "GetBackBufferDesc(No device data)");
+      return desc;
+    }
     // const std::shared_lock lock(device_data->mutex);
     desc = device_data->back_buffer_desc;
   }
@@ -161,6 +165,7 @@ inline void OnBindRenderTargetsAndDepthStencil(
     reshade::api::resource_view dsv) {
   if (!is_primary_hook) return;
   auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  if (cmd_list_data == nullptr) return;
   const bool found_swapchain_rtv = false;
   cmd_list_data->current_render_targets.assign(rtvs, rtvs + count);
   cmd_list_data->current_depth_stencil = dsv;
@@ -169,7 +174,7 @@ inline void OnBindRenderTargetsAndDepthStencil(
 
 static bool HasBackBufferRenderTarget(reshade::api::command_list* cmd_list) {
   auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
-
+  if (cmd_list_data == nullptr) return false;
   if (!cmd_list_data->has_swapchain_render_target_dirty) {
     return cmd_list_data->has_swapchain_render_target;
   }
@@ -199,17 +204,24 @@ static bool HasBackBufferRenderTarget(reshade::api::command_list* cmd_list) {
 
 static std::vector<reshade::api::resource_view>& GetRenderTargets(reshade::api::command_list* cmd_list) {
   auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  assert(cmd_list_data != nullptr);
   return cmd_list_data->current_render_targets;
 };
 
 static reshade::api::resource_view& GetDepthStencil(reshade::api::command_list* cmd_list) {
   auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
+  assert(cmd_list_data != nullptr);
   return cmd_list_data->current_depth_stencil;
 };
 
 static bool IsDirectX(reshade::api::swapchain* swapchain) {
   auto* device = swapchain->get_device();
   return device::IsDirectX(device);
+}
+
+static bool IsDXGI(reshade::api::swapchain* swapchain) {
+  auto* device = swapchain->get_device();
+  return device::IsDXGI(device);
 }
 
 static std::optional<DXGI_OUTPUT_DESC1> GetDirectXOutputDesc1(reshade::api::swapchain* swapchain) {
@@ -262,7 +274,7 @@ static std::optional<DXGI_OUTPUT_DESC1> GetDirectXOutputDesc1(reshade::api::swap
 }
 
 static std::optional<float> GetPeakNits(reshade::api::swapchain* swapchain) {
-  if (!IsDirectX(swapchain)) return std::nullopt;
+  if (!IsDXGI(swapchain)) return std::nullopt;
 
   auto output_desc = GetDirectXOutputDesc1(swapchain);
   if (!output_desc.has_value()) return std::nullopt;
@@ -316,7 +328,7 @@ static bool IsHDRColorSpace(reshade::api::swapchain* swapchain) {
 }
 
 static std::optional<float> GetSDRWhiteNits(reshade::api::swapchain* swapchain) {
-  if (!IsDirectX(swapchain)) return std::nullopt;
+  if (!IsDXGI(swapchain)) return std::nullopt;
 
   auto output_desc = GetDirectXOutputDesc1(swapchain);
   if (!output_desc.has_value()) return std::nullopt;
@@ -337,7 +349,7 @@ static std::optional<float> GetSDRWhiteNits(reshade::api::swapchain* swapchain) 
 }
 
 static bool ChangeColorSpace(reshade::api::swapchain* swapchain, reshade::api::color_space color_space) {
-  if (IsDirectX(swapchain)) {
+  if (IsDXGI(swapchain)) {
     DXGI_COLOR_SPACE_TYPE dx_color_space = DXGI_COLOR_SPACE_CUSTOM;
     switch (color_space) {
       case reshade::api::color_space::srgb_nonlinear:       dx_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709; break;
@@ -404,7 +416,7 @@ static void ResizeBuffer(
     reshade::api::swapchain* swapchain,
     reshade::api::format format = reshade::api::format::r16g16b16a16_float,
     reshade::api::color_space color_space = reshade::api::color_space::unknown) {
-  if (!IsDirectX(swapchain)) return;
+  if (!IsDXGI(swapchain)) return;
   auto* native_swapchain = reinterpret_cast<IDXGISwapChain*>(swapchain->get_native());
 
   IDXGISwapChain4* swapchain4;
