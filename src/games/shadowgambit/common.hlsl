@@ -34,3 +34,10 @@ float3 applyUserTonemap(float3 color) {
 float3 uberPostScaling(float3 color) {
   return color = renodx::draw::RenderIntermediatePass(color);
 }
+
+float3 preUberPostUIScaling(float3 color) {
+  // vibe-based scaling
+  float scaling = lerp(RENODX_GRAPHICS_WHITE_NITS / RENODX_DIFFUSE_WHITE_NITS, 1.f, ((RENODX_TONE_MAP_CONTRAST + RENODX_TONE_MAP_HIGHLIGHTS) / 4.f));
+
+  return color *= scaling;
+}
