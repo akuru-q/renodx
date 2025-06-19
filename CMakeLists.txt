@@ -8,14 +8,24 @@ if(NOT CMAKE_WINDOWS_KITS_10_DIR)
 endif()
 
 find_program(FXC_BIN fxc.exe
-  HINTS ${CMAKE_WINDOWS_KITS_10_DIR}/bin/${CMAKE_SYSTEM_VERSION}/x64/
+  HINTS
+  ${CMAKE_CURRENT_SOURCE_DIR}/bin/
+  ${CMAKE_WINDOWS_KITS_10_DIR}/bin/${CMAKE_SYSTEM_VERSION}/x64/
   REQUIRED)
 message("FXC_BIN: " ${FXC_BIN})
 
 find_program(DXC_BIN dxc.exe
-  HINTS ${CMAKE_WINDOWS_KITS_10_DIR}/bin/${CMAKE_SYSTEM_VERSION}/x64/
+  HINTS
+  ${CMAKE_CURRENT_SOURCE_DIR}/bin/
+  ${CMAKE_WINDOWS_KITS_10_DIR}/bin/${CMAKE_SYSTEM_VERSION}/x64/
   REQUIRED)
 message("DXC_BIN: " ${DXC_BIN})
+
+find_program(SLANGC_BIN slangc.exe
+  HINTS
+  ${CMAKE_CURRENT_SOURCE_DIR}/bin/
+  REQUIRED)
+message("SLANGC_BIN: " ${SLANGC_BIN})
 
 project(renodx VERSION 0.1.0 LANGUAGES CXX)
 
@@ -74,6 +84,63 @@ function(inspect_hlsl_imports FILE VARIABLE REQUESTING_FILE)
 
 endfunction()
 
+function(generate_resource_rc ADDON)
+
+  string(TIMESTAMP VERSION_FALLBACK "0,%Y,%m%d,%H%M" UTC)
+
+  # llvm-rc will parse leading zeros as octet
+  # Strip leading zeros in each comma-delimited value of VERSION_FALLBACK
+  string(REPLACE "," ";" VERSION_LIST "${VERSION_FALLBACK}")
+
+  set(STRIPPED_VERSION_LIST "")
+  foreach(V IN LISTS VERSION_LIST)
+    # Remove leading zeros, but keep "0" if the value is zero
+    string(REGEX REPLACE "^0*([1-9][0-9]*|0)$" "\\1" V_STRIPPED "${V}")
+    list(APPEND STRIPPED_VERSION_LIST "${V_STRIPPED}")
+  endforeach()
+  list(JOIN STRIPPED_VERSION_LIST "," VERSION_FALLBACK)
+
+  set(RESOURCE_RC_CONTENT "
+#include <winver.h>
+
+#ifndef VER_FILEVERSION
+#define VER_FILEVERSION ${VERSION_FALLBACK}
+#endif
+
+#ifndef DEBUG
+#define VER_DEBUG 0
+#else
+#define VER_DEBUG VS_FF_DEBUG
+#endif
+
+1 VERSIONINFO
+FILEVERSION VER_FILEVERSION
+FILETYPE VFT_DLL
+FILEFLAGS VER_DEBUG
+BEGIN
+  BLOCK \"StringFileInfo\"
+  BEGIN
+    BLOCK \"040904b0\"
+    BEGIN
+      VALUE \"OriginalFilename\", \"renodx-${ADDON}${TARGET_SUFFIX}\\0\"
+    END
+  END
+  BLOCK \"VarFileInfo\"
+  BEGIN
+    VALUE \"Translation\", 0x409, 1200
+  END
+END
+
+")
+
+  # Write the content to the resource file
+  file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${ADDON}.include/resource.rc CONTENT "${RESOURCE_RC_CONTENT}")
+
+  # Add the generated resource.rc to the addon compilation
+  target_sources(${ADDON} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/${ADDON}.include/resource.rc)
+
+endfunction()
+
 function(build_shader_target ADDON ADDON_PATH)
   set(EMBED_FOLDER ${CMAKE_CURRENT_BINARY_DIR}/${ADDON}.include/embed)
   unset(SHADER_BINARIES)
@@ -86,7 +153,7 @@ function(build_shader_target ADDON ADDON_PATH)
     set(SHADER_NAME ${CMAKE_MATCH_1})
     set(SHADER_TARGET ${CMAKE_MATCH_2})
     if(SHADER_NAME)
-      string(REGEX MATCH "(0x[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F])$" _ ${SHADER_NAME})
+      string(REGEX MATCH "(0x[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])$" _ ${SHADER_NAME})
       set(SHADER_HASH ${CMAKE_MATCH_1})
     endif()
 
@@ -196,6 +263,139 @@ function(build_shader_target ADDON ADDON_PATH)
     endif()
   endforeach()
 
+  file(GLOB_RECURSE SHADER_SOURCES ${ADDON_PATH}/*.slang)
+  foreach(FILE ${SHADER_SOURCES})
+    cmake_path(GET FILE FILENAME FILENAME)
+    cmake_path(GET FILE PARENT_PATH TARGET_PATH)
+    string(REGEX MATCH "(.*)\\.([^.]+)\\.slang$" _ ${FILENAME})
+    set(SHADER_NAME ${CMAKE_MATCH_1})
+    set(SHADER_TARGET ${CMAKE_MATCH_2})
+
+    if(SHADER_NAME)
+      string(REGEX MATCH "(0x[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])$" _ ${SHADER_NAME})
+      set(SHADER_HASH ${CMAKE_MATCH_1})
+    endif()
+
+    if(SHADER_TARGET AND (SHADER_HASH OR SHADER_NAME))
+      if(SHADER_TARGET STREQUAL "frag" OR SHADER_TARGET STREQUAL "vert" OR SHADER_TARGET STREQUAL "comp")
+        set(SHADER_COMPILER ${SLANGC_BIN})
+
+        # Add dependencies
+        unset(HLSL_DEPENDENCIES)
+        unset(HLSL_CHILD_DEPENDENCIES)
+        list(APPEND HLSL_DEPENDENCIES ${FILE})
+        inspect_hlsl_imports(${FILE} HLSL_CHILD_DEPENDENCIES ".")
+        list(APPEND HLSL_DEPENDENCIES ${HLSL_CHILD_DEPENDENCIES})
+
+        unset(SHADER_STAGE)
+        if(SHADER_TARGET STREQUAL "frag")
+          set(SHADER_STAGE "fragment")
+        elseif(SHADER_TARGET STREQUAL "vert")
+          set(SHADER_STAGE "vertex")
+        elseif(SHADER_TARGET STREQUAL "comp")
+          set(SHADER_STAGE "compute")
+        endif()
+
+        if(SHADER_HASH)
+          add_custom_command(
+            OUTPUT ${EMBED_FOLDER}/${SHADER_HASH}.spv
+            COMMAND ${SHADER_COMPILER} ${FILE} -stage ${SHADER_STAGE} -O3 -g0 -entry main -target spirv -o ${EMBED_FOLDER}/${SHADER_HASH}.spv
+            DEPENDS ${HLSL_DEPENDENCIES}
+          )
+          list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_HASH}.spv)
+        else()
+          add_custom_command(
+            OUTPUT ${EMBED_FOLDER}/${SHADER_NAME}.spv
+            COMMAND ${SHADER_COMPILER} ${FILE} -stage ${SHADER_STAGE} -O3 -g0 -entry main -target spirv -o ${EMBED_FOLDER}/${SHADER_NAME}.spv
+            DEPENDS ${HLSL_DEPENDENCIES}
+          )
+          list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_NAME}.spv)
+        endif()
+      else()
+        string(SUBSTRING ${SHADER_TARGET} 3 1 SHADER_TARGET_MAJOR)
+        string(SUBSTRING ${SHADER_TARGET} 5 1 SHADER_TARGET_MINOR)
+        if(SHADER_TARGET_MAJOR STREQUAL "5" AND SHADER_TARGET_MINOR STREQUAL "x")
+
+          string(SUBSTRING ${SHADER_TARGET} 0 2 SHADER_TARGET_TYPE)
+
+          # Add dependencies
+          unset(HLSL_DEPENDENCIES)
+          unset(HLSL_CHILD_DEPENDENCIES)
+          list(APPEND HLSL_DEPENDENCIES ${FILE})
+          inspect_hlsl_imports(${FILE} HLSL_CHILD_DEPENDENCIES ".")
+          list(APPEND HLSL_DEPENDENCIES ${HLSL_CHILD_DEPENDENCIES})
+
+          #DX11
+          set(SHADER_COMPILER ${SLANGC_BIN})
+
+          if(SHADER_HASH)
+            add_custom_command(
+              OUTPUT ${EMBED_FOLDER}/${SHADER_HASH}_dx11.cso
+              COMMAND ${SHADER_COMPILER} ${FILE} -profile ${SHADER_TARGET_TYPE}_5_0 -O3 -g0 -entry main -target dxbc -o ${EMBED_FOLDER}/${SHADER_HASH}_dx11.cso
+              DEPENDS ${HLSL_DEPENDENCIES}
+            )
+            list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_HASH}_dx11.cso)
+          else()
+            add_custom_command(
+              OUTPUT ${EMBED_FOLDER}/${SHADER_NAME}_dx11.cso
+              COMMAND ${SHADER_COMPILER} ${FILE} -profile ${SHADER_TARGET_TYPE}_5_0 -O3 -g0 -entry main -target dxbc -o ${EMBED_FOLDER}/${SHADER_NAME}_dx11.cso
+              DEPENDS ${HLSL_DEPENDENCIES}
+            )
+            list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_NAME}_dx11.cso)
+          endif()
+
+          #DX12
+          unset(SHADER_FLAGS)
+
+          if(SHADER_HASH)
+            add_custom_command(
+              OUTPUT ${EMBED_FOLDER}/${SHADER_HASH}_dx12.cso
+              COMMAND ${SHADER_COMPILER} ${FILE} -profile ${SHADER_TARGET_TYPE}_5_1 -O3 -g0 -entry main -target dxbc -o ${EMBED_FOLDER}/${SHADER_HASH}_dx12.cso
+              DEPENDS ${HLSL_DEPENDENCIES}
+            )
+            list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_HASH}_dx12.cso)
+          else()
+            add_custom_command(
+              OUTPUT ${EMBED_FOLDER}/${SHADER_NAME}_dx12.cso
+              COMMAND ${SHADER_COMPILER} ${FILE} -profile ${SHADER_TARGET_TYPE}_5_1 -O3 -g0 -entry main -target dxbc -o ${EMBED_FOLDER}/${SHADER_NAME}_dx12.cso
+              DEPENDS ${HLSL_DEPENDENCIES}
+            )
+            list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_NAME}_dx12.cso)
+          endif()
+
+        else()
+          set(SHADER_COMPILER ${SLANGC_BIN})
+
+          # Add dependencies
+          unset(HLSL_DEPENDENCIES)
+          unset(HLSL_CHILD_DEPENDENCIES)
+          list(APPEND HLSL_DEPENDENCIES ${FILE})
+          inspect_hlsl_imports(${FILE} HLSL_CHILD_DEPENDENCIES ".")
+          list(APPEND HLSL_DEPENDENCIES ${HLSL_CHILD_DEPENDENCIES})
+
+          if(SHADER_HASH)
+            # message("Registering: " ${FILE} " => " ${EMBED_FOLDER}/${SHADER_HASH}.cso)
+            add_custom_command(
+              OUTPUT ${EMBED_FOLDER}/${SHADER_HASH}.cso
+              COMMAND ${SHADER_COMPILER} ${FILE} -profile ${SHADER_TARGET} -O3 -g0 -entry main -target dxil -o ${EMBED_FOLDER}/${SHADER_HASH}.cso
+              DEPENDS ${HLSL_DEPENDENCIES}
+            )
+            list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_HASH}.cso)
+          else()
+            add_custom_command(
+              OUTPUT ${EMBED_FOLDER}/${SHADER_NAME}.cso
+              COMMAND ${SHADER_COMPILER} ${FILE} -profile ${SHADER_TARGET} -O3 -g0 -entry main -target dxil -o ${EMBED_FOLDER}/${SHADER_NAME}.cso
+              DEPENDS ${HLSL_DEPENDENCIES}
+            )
+            list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_NAME}.cso)
+          endif()
+        endif()
+      endif()
+    else()
+      #message(WARNING "Skipping shader file: " ${FILE} " - Invalid target or name.")
+    endif()
+  endforeach()
+
 
   file(GLOB_RECURSE SHADER_CSO_FILES ${ADDON_PATH}/*.cso)
   foreach(FILE ${SHADER_CSO_FILES})
@@ -205,7 +405,7 @@ function(build_shader_target ADDON ADDON_PATH)
     set(SHADER_NAME ${CMAKE_MATCH_1})
     set(SHADER_TARGET ${CMAKE_MATCH_2})
     if(SHADER_NAME)
-      string(REGEX MATCH "(0x[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F])$" _ ${SHADER_NAME})
+      string(REGEX MATCH "(0x[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])$" _ ${SHADER_NAME})
       set(SHADER_HASH ${CMAKE_MATCH_1})
     endif()
 
@@ -226,7 +426,7 @@ function(build_shader_target ADDON ADDON_PATH)
     set(SHADER_NAME ${CMAKE_MATCH_1})
     set(SHADER_TARGET ${CMAKE_MATCH_2})
     if(SHADER_NAME)
-      string(REGEX MATCH "(0x[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F])$" _ ${SHADER_NAME})
+      string(REGEX MATCH "(0x[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])$" _ ${SHADER_NAME})
       set(SHADER_HASH ${CMAKE_MATCH_1})
     endif()
 
@@ -342,8 +542,9 @@ foreach(FILE ${ADDON_FILES})
   add_compile_options(/bigobj)
   add_library(${ADDON} MODULE ${FILE})
   build_shader_target(${ADDON} ${CMAKE_CURRENT_SOURCE_DIR}/src/games/${ADDON})
+  generate_resource_rc(${ADDON})
   add_dependencies(${ADDON} ${ADDON}-shaders)
-  target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/parallel-hashmap)
+  target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/gtl/include)
   target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/reshade)
   target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_include_directories(${ADDON} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/${ADDON}.include)

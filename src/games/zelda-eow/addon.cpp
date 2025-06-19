@@ -7,8 +7,7 @@
 
 #define DEBUG_LEVEL_0
 
-#include <embed/0xA380E737.h>
-#include <embed/0xF3C7B934.h>
+#include <embed/shaders.h>
 
 #include <deps/imgui/imgui.h>
 #include <include/reshade.hpp>
@@ -18,8 +17,11 @@
 namespace {
 
 renodx::mods::shader::CustomShaders custom_shaders = {
-    CustomShaderEntry(0xA380E737),
-    CustomShaderEntry(0xF3C7B934),
+    CustomShaderEntry(0x0A67EFF4),  // bloom
+    CustomShaderEntry(0xA380E737),  // tonemap+scale
+    CustomShaderEntry(0xF1FC454C),  // tonemap
+    CustomShaderEntry(0xEF7E426D),  // tonemap la
+    CustomShaderEntry(0xF3C7B934),  // output
 };
 
 }  // namespace
@@ -32,6 +34,9 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
     case DLL_PROCESS_ATTACH:
       if (!reshade::register_addon(h_module)) return FALSE;
 
+      // renodx::mods::swapchain::use_resource_cloning = true;
+
+      // renodx::mods::swapchain::SetUseHDR10(true);
       break;
     case DLL_PROCESS_DETACH:
 
