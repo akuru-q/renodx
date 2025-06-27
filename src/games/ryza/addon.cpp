@@ -68,7 +68,7 @@ renodx::utils::settings::Settings settings = {
         .label = "Tone Mapper",
         .section = "Tone Mapping",
         .tooltip = "Sets the tone mapper type",
-        .labels = {"Vanilla", "None", "ACES", "RenoDX"},
+        .labels = {"Vanilla", "None", "ACES", "RenoDRT"},
     },
     new renodx::utils::settings::Setting{
         .key = "toneMapPeakNits",
@@ -224,6 +224,11 @@ renodx::utils::settings::Settings settings = {
     //    .max = 100.f,
     //    .parse = [](float value) { return value * 0.01f; },
     //},
+    new renodx::utils::settings::Setting{
+        .value_type = renodx::utils::settings::SettingValueType::TEXT,
+        .label = "Please make sure all post processing effects (DoF, Bloom, Light Shafts) are enabled in-game.",
+        .section = "Instructions",
+    },
     new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::TEXT,
         .label = "RenoDX by ShortFuse, game mod by akuru",
