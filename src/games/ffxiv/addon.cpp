@@ -310,12 +310,12 @@ void OnInitDevice(reshade::api::device* device) {
     std::vector<reshade::api::pipeline_subobject> subobjects;
 
     reshade::api::shader_desc vs_desc = {};
-    vs_desc.code = __final_vertex_shader.begin();
+    vs_desc.code = __final_vertex_shader.data();
     vs_desc.code_size = __final_vertex_shader.size();
     subobjects.push_back({reshade::api::pipeline_subobject_type::vertex_shader, 1, &vs_desc});
 
     reshade::api::shader_desc ps_desc = {};
-    ps_desc.code = __final_pixel_shader.begin();
+    ps_desc.code = __final_pixel_shader.data();
     ps_desc.code_size = __final_pixel_shader.size();
     subobjects.push_back({reshade::api::pipeline_subobject_type::pixel_shader, 1, &ps_desc});
 
@@ -492,6 +492,12 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
 
       renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
           .old_format = reshade::api::format::r8g8b8a8_unorm,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+      });
+
+      //Only needed if Gamma Correction is active?????? (GammaCorrection != 50)
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::b8g8r8a8_unorm,
           .new_format = reshade::api::format::r16g16b16a16_float,
       });
 
