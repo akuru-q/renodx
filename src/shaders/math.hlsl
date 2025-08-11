@@ -13,10 +13,11 @@ static const float FLT16_MIN = CROSS_COMPILE(asfloat(0x0400), 0.00006103515625);
 static const float FLT16_MAX = 65504.f;
 static const float FLT32_MIN = CROSS_COMPILE(asfloat(0x00800000), 1.17549435082228750797e-38);
 static const float FLT32_MAX = CROSS_COMPILE(asfloat(0x7F7FFFFF), 3.40282346638528859812e+38);
-static const float FLT_MIN = FLT32_MIN;
-static const float FLT_MAX = FLT32_MAX;
+static const float FLT_MIN = CROSS_COMPILE(asfloat(0x00800000), 1.17549435082228750797e-38);
+static const float FLT_MAX = CROSS_COMPILE(asfloat(0x7F7FFFFF), 3.40282346638528859812e+38);;
 static const float INFINITY = CROSS_COMPILE(asfloat(0x7F800000), 1.0 / 0.0);
 static const float NEG_INFINITY = CROSS_COMPILE(asfloat(0xFF800000), -1.0 / 0.0);
+static const float PI = 3.14159265358979323846f;
 
 #if __SHADER_TARGET_MAJOR >= 6 || defined(VULKAN)
 #define SIGN_FUNCTION_GENERATOR(T) \
@@ -120,6 +121,31 @@ float Min(float x, float y, float z) {
 
 float Min(float x, float y, float z, float w) {
   return min(x, min(y, min(z, w)));
+}
+
+float3x3 Invert3x3(float3x3 m) {
+  float a = m[0][0], b = m[0][1], c = m[0][2];
+  float d = m[1][0], e = m[1][1], f = m[1][2];
+  float g = m[2][0], h = m[2][1], i = m[2][2];
+
+  float A = (e * i - f * h);
+  float B = -(d * i - f * g);
+  float C = (d * h - e * g);
+  float D = -(b * i - c * h);
+  float E = (a * i - c * g);
+  float F = -(a * h - b * g);
+  float G = (b * f - c * e);
+  float H = -(a * f - c * d);
+  float I = (a * e - b * d);
+
+  float det = a * A + b * B + c * C;
+  float invDet = 1.0 / det;
+
+  return float3x3(
+             A, D, G,
+             B, E, H,
+             C, F, I)
+         * invDet;
 }
 
 END_NAMESPACE(math)

@@ -517,7 +517,8 @@ float4 main(
   float _506;
   float _507;
   if (!(SharedFrameData_000.FrameData_036 == 0)) {
-    _36 = (lerp(SharedFrameData_000.FrameData_040, 1.0f, 0.8500000238418579f));
+    // _36 = (lerp(SharedFrameData_000.FrameData_040, 1.0f, 0.8500000238418579f));
+    _36 = 1.0f;
   } else {
     _36 = 1.0f;
   }
@@ -763,23 +764,26 @@ float4 main(
   float _340 = (((((((_307 * _292) - _316) * _293) + _316) * _302) - PerSceneConstants_000.SPerSceneConstants_5056.CameraExposureData_008) * _304) + PerSceneConstants_000.SPerSceneConstants_5056.CameraExposureData_008;
 
   // User Contrast
-
-  float _352 = max(SharedFrameData_000.FrameData_032, 0.0010000000474974513f);
-  float _359 = (((lerp(_338, _295, _298)) * 2.0f) + -1.0f) * _352;
-  float _360 = (((lerp(_339, _296, _298)) * 2.0f) + -1.0f) * _352;
-  float _361 = (((lerp(_340, _297, _298)) * 2.0f) + -1.0f) * _352;
-  float _366 = (_352 / sqrt((_352 * _352) + 1.0f)) * 2.0f;
+  // float _352 = max(SharedFrameData_000.FrameData_032, 0.0010000000474974513f);
+  // float _359 = (((lerp(_338, _295, _298)) * 2.0f) + -1.0f) * _352;
+  // float _360 = (((lerp(_339, _296, _298)) * 2.0f) + -1.0f) * _352;
+  // float _361 = (((lerp(_340, _297, _298)) * 2.0f) + -1.0f) * _352;
+  // float _366 = (_352 / sqrt((_352 * _352) + 1.0f)) * 2.0f;
 
   // float _388 = 1.0f / max(SharedFrameData_000.FrameData_028, 0.0010000000474974513f);
+  
   // Bethesda thinks the 2.4 in SRGB is "Brightness" and should be user selectable.
-
   // float _404 = max(((exp2(log2((_359 / (sqrt((_359 * _359) + 1.0f) * _366)) + 0.5f) * _388) * 1.0549999475479126f) + -0.054999999701976776f), 0.0f);
   // float _405 = max(((exp2(log2((_360 / (sqrt((_360 * _360) + 1.0f) * _366)) + 0.5f) * _388) * 1.0549999475479126f) + -0.054999999701976776f), 0.0f);
   // float _406 = max(((exp2(log2((_361 / (sqrt((_361 * _361) + 1.0f) * _366)) + 0.5f) * _388) * 1.0549999475479126f) + -0.054999999701976776f), 0.0f);
 
-  float _404 = ((_359 / (sqrt((_359 * _359) + 1.0f) * _366)) + 0.5f);
-  float _405 = ((_360 / (sqrt((_360 * _360) + 1.0f) * _366)) + 0.5f);
-  float _406 = ((_361 / (sqrt((_361 * _361) + 1.0f) * _366)) + 0.5f);
+  // float _404 = ((_359 / (sqrt((_359 * _359) + 1.0f) * _366)) + 0.5f);
+  // float _405 = ((_360 / (sqrt((_360 * _360) + 1.0f) * _366)) + 0.5f);
+  // float _406 = ((_361 / (sqrt((_361 * _361) + 1.0f) * _366)) + 0.5f);
+
+  float _404 = lerp(_338, _295, _298);
+  float _405 = lerp(_339, _296, _298);
+  float _406 = lerp(_340, _297, _298);
 
   if (CUSTOM_VANILLA_BY_LUMINANCE != 0) {
     float3 by_luminance = untonemapped * renodx::math::DivideSafe(_404, _52, 0);
@@ -803,7 +807,7 @@ float4 main(
   lut_config.lut_sampler = s0_space5;
   lut_config.strength = CUSTOM_LUT_STRENGTH;
   lut_config.scaling = CUSTOM_LUT_SCALING;
-  lut_config.tetrahedral = false;
+  lut_config.tetrahedral = CUSTOM_LUT_SAMPLING != 0.f;
   lut_config.type_input = renodx::lut::config::type::SRGB;
   lut_config.type_output = renodx::lut::config::type::SRGB;
   lut_config.size = 16u;
@@ -823,8 +827,9 @@ float4 main(
   float _429 = (_420.x * (_405 - _415.y)) + _415.y;
   float _430 = (_420.x * (_406 - _415.z)) + _415.z;
 
+  // "HDR Brightness" (per channel lut stretching)
   // if (!(SharedFrameData_000.FrameData_036 == 0)) {
-  if (CUSTOM_LUT_SCALING == 0 && !(SharedFrameData_000.FrameData_036 == 0)) {
+  if (false && !(SharedFrameData_000.FrameData_036 == 0)) {
     float3 _435 = t3_space5.Sample(s0_space5, float3(0.03125f, 0.03125f, 0.03125f));
     float3 _439 = t3_space5.Sample(s0_space5, float3(0.96875f, 0.96875f, 0.96875f));
     float _444 = min(_435.x, min(_435.y, _435.z));
