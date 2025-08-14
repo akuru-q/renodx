@@ -423,7 +423,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
         return device->get_api() == reshade::api::device_api::d3d12;
       };
 
-      //renodx::mods::swapchain::SetUseHDR10(true);
+      renodx::mods::swapchain::SetUseHDR10(true);
 
       //renodx::mods::swapchain::force_borderless = false;     // needed for stability
       //renodx::mods::swapchain::prevent_full_screen = false;  // needed for stability
@@ -458,6 +458,15 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       //    reshade::api::format::r16g16b16a16_float},
       //  }});
 
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::r11g11b10_float,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+          //.use_resource_view_cloning = true,
+          .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
+          //.usage_include = reshade::api::resource_usage::render_target
+          //                 | reshade::api::resource_usage::copy_dest,
+      });
+
       reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
 
       break;
@@ -469,7 +478,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
 
   renodx::utils::settings::Use(fdw_reason, &settings, &OnPresetOff);
 
-  //renodx::mods::swapchain::Use(fdw_reason, &shader_injection); // don't touch swapchain
+  renodx::mods::swapchain::Use(fdw_reason, &shader_injection);
 
   renodx::mods::shader::Use(fdw_reason, custom_shaders, &shader_injection);
 
