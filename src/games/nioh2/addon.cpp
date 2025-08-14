@@ -19,14 +19,18 @@
 
 namespace {
 
+ShaderInjectData shader_injection;
+
 renodx::mods::shader::CustomShaders custom_shaders = {
     CustomShaderEntry(0x9868930E), // lutsample
-    CustomShaderEntry(0x1C876972), // output
+    CustomShaderEntryCallback(0x1C876972, [](reshade::api::command_list* cmd_list) { // hdr final shader
+        CUSTOM_IS_HDR_FINAL_SHADER_PRESENT = 1.f;
+        return true;
+    }),
+    CustomShaderEntry(0xAEE14B47), // sdr final shader
     CustomShaderEntry(0xC74E0EF4), // post process/fxaa
     CustomShaderEntry(0x3FADEA1E), // overbright UI element (char portrait in overworld map)
 };
-
-ShaderInjectData shader_injection;
 
 const std::string build_date = __DATE__;
 const std::string build_time = __TIME__;
@@ -423,10 +427,14 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       //  return device->get_api() == reshade::api::device_api::d3d12;
       //};
 
-      //renodx::mods::swapchain::SetUseHDR10(true);
+      renodx::mods::swapchain::SetUseHDR10(true);
+
+      //renodx::mods::swapchain::use_resize_buffer_on_demand = true;
+      //renodx::mods::swapchain::use_resize_buffer = true;
 
       //renodx::mods::swapchain::force_borderless = false;     // needed for stability
       //renodx::mods::swapchain::prevent_full_screen = false;  // needed for stability
+      //renodx::mods::swapchain::swapchain_proxy_compatibility_mode = true;
 
       //renodx::mods::shader::expected_constant_buffer_space = 50;
       //renodx::mods::shader::expected_constant_buffer_index = 13;
@@ -436,10 +444,14 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       //renodx::mods::swapchain::expected_constant_buffer_index = 13;
       //renodx::mods::swapchain::expected_constant_buffer_space = 50;
 
-      //renodx::mods::swapchain::use_resource_cloning = true;
+      renodx::mods::swapchain::use_resource_cloning = true;
       //renodx::mods::swapchain::swap_chain_proxy_vertex_shader = __swap_chain_proxy_vertex_shader;
       //renodx::mods::swapchain::swap_chain_proxy_pixel_shader = __swap_chain_proxy_pixel_shader;
       //renodx::mods::swapchain::swapchain_proxy_revert_state = true;
+
+      //renodx::mods::swapchain::use_resize_buffer_on_demand = true;
+      //renodx::mods::swapchain::use_resize_buffer_on_present = true;
+      //renodx::mods::swapchain::use_resize_buffer = true;
 
       // RG11B10_float
       //renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({.old_format = reshade::api::format::r11g11b10_float,
@@ -458,14 +470,14 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       //    reshade::api::format::r16g16b16a16_float},
       //  }});
 
-      //renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
-      //    .old_format = reshade::api::format::r11g11b10_float,
-      //    .new_format = reshade::api::format::r16g16b16a16_float,
-      //    .use_resource_view_cloning = true,
-      //    .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
-      //    //.usage_include = reshade::api::resource_usage::render_target
-      //    //                 | reshade::api::resource_usage::copy_dest,
-      //});
+      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+          .old_format = reshade::api::format::r11g11b10_float,
+          .new_format = reshade::api::format::r16g16b16a16_float,
+          //.use_resource_view_cloning = true,
+          .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
+          //.usage_include = reshade::api::resource_usage::render_target
+          //                 | reshade::api::resource_usage::copy_dest,
+      });
 
       reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
 
@@ -478,7 +490,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
 
   renodx::utils::settings::Use(fdw_reason, &settings, &OnPresetOff);
 
-  //renodx::mods::swapchain::Use(fdw_reason, &shader_injection); // don't touch swapchain
+  renodx::mods::swapchain::Use(fdw_reason, &shader_injection);
 
   renodx::mods::shader::Use(fdw_reason, custom_shaders, &shader_injection);
 

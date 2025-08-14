@@ -30,9 +30,7 @@ void main(
   r0.xyzw = sScreen.Sample(__smpsScreen_s, v1.xy).xyzw;
 
   if (RENODX_TONE_MAP_TYPE != 0.f) {
-    r0.rgb = renodx::color::bt2020::from::BT709(r0.rgb);
     o0 = renodx::draw::SwapChainPass(r0);
-    // o0.rgb = renodx::color::pq::Encode(r0.rgb, RENODX_DIFFUSE_WHITE_NITS);
     return;
   }
 
