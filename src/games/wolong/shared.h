@@ -6,7 +6,6 @@
 #define RENODX_GRAPHICS_WHITE_NITS           shader_injection.graphics_white_nits
 #define RENODX_TONE_MAP_TYPE                 shader_injection.tone_map_type
 #define RENODX_RENO_DRT_TONE_MAP_METHOD      renodx::tonemap::renodrt::config::tone_map_method::REINHARD
-//#define RENODX_RENO_DRT_WHITE_CLIP           6.f
 #define RENODX_TONE_MAP_EXPOSURE             shader_injection.tone_map_exposure
 #define RENODX_TONE_MAP_HIGHLIGHTS           shader_injection.tone_map_highlights
 #define RENODX_TONE_MAP_SHADOWS              shader_injection.tone_map_shadows
@@ -21,9 +20,12 @@
 #define RENODX_TONE_MAP_HUE_PROCESSOR        shader_injection.tone_map_hue_processor
 #define RENODX_TONE_MAP_PER_CHANNEL          shader_injection.tone_map_per_channel
 #define RENODX_GAMMA_CORRECTION              shader_injection.gamma_correction
+#define RENODX_SWAP_CHAIN_GAMMA_CORRECTION       shader_injection.gamma_correction
 #define RENODX_INTERMEDIATE_ENCODING         0.f
 #define RENODX_SWAP_CHAIN_DECODING           0.f
-#define RENODX_SWAP_CHAIN_ENCODING           renodx::draw::ENCODING_PQ
+#define RENODX_SWAP_CHAIN_ENCODING_COLOR_SPACE   color::convert::COLOR_SPACE_BT2020
+#define RENODX_SWAP_CHAIN_ENCODING               renodx::draw::ENCODING_PQ
+#define RENODX_SWAP_CHAIN_CLAMP_COLOR_SPACE      color::convert::COLOR_SPACE_BT2020
 //#define CUSTOM_TONE_MAP_CONFIGURATION        shader_injection.custom_tone_map_configuration
 //#define CUSTOM_HDR_VIDEOS                    shader_injection.custom_hdr_videos
 //#define CUSTOM_HDR_VIDEOS_PEAK_NITS          shader_injection.custom_hdr_videos_peak_nits
