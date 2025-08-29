@@ -336,7 +336,7 @@ renodx::utils::settings::Settings info_settings = {
         .group = "button-line-2",
         .tint = 0x5865F2,
         .on_change = []() {
-          renodx::utils::platform::LaunchURL("https://discord.gg/", "5WZXDpmbpP");
+          renodx::utils::platform::LaunchURL("https://discord.gg/", "F6AUTeWJHM");
         },
     },
     new renodx::utils::settings::Setting{
@@ -581,6 +581,13 @@ const std::unordered_map<
         {
             "Banishers: Ghosts of New Eden",
             {
+                {"Upgrade_R10G10B10A2_UNORM", UPGRADE_TYPE_OUTPUT_SIZE},
+            },
+        },
+        {
+            "Lost Soul Aside",
+            {
+                {"Upgrade_B8G8R8A8_TYPELESS", UPGRADE_TYPE_OUTPUT_SIZE},
                 {"Upgrade_R10G10B10A2_UNORM", UPGRADE_TYPE_OUTPUT_SIZE},
             },
         },
