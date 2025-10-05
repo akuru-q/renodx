@@ -4,7 +4,6 @@
  */
 
 #define ImTextureID ImU64
-
 #define DEBUG_LEVEL_0
 
 #include <deps/imgui/imgui.h>
@@ -457,6 +456,15 @@ void AddWuchangUpgrades() {
   });
 }
 
+void AddSonicRacingCrossWorldsUpgrades() {
+  renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      .old_format = reshade::api::format::r10g10b10a2_unorm,
+      .new_format = reshade::api::format::r16g16b16a16_float,
+      .use_resource_view_cloning = true,
+      .aspect_ratio = 16.f / 9.f,
+  });
+}
+
 void AddGamePatches() {
   auto process_path = renodx::utils::platform::GetCurrentProcessPath();
   auto filename = process_path.filename().string();
@@ -470,6 +478,8 @@ void AddGamePatches() {
     renodx::mods::swapchain::swapchain_proxy_revert_state = true;
   } else if (product_name == "Project_Plague") {
     AddWuchangUpgrades();
+  } else if (product_name == "SonicRacingCrossWorlds") {
+    AddSonicRacingCrossWorldsUpgrades();
   } else {
     return;
   }
@@ -589,6 +599,21 @@ const std::unordered_map<
             {
                 {"Upgrade_B8G8R8A8_TYPELESS", UPGRADE_TYPE_OUTPUT_SIZE},
                 {"Upgrade_R10G10B10A2_UNORM", UPGRADE_TYPE_OUTPUT_SIZE},
+            },
+        },
+        {
+            "Borderlands3.exe",
+            {
+              {"Upgrade_CopyDestinations", 1.f},  
+              {"Upgrade_R8G8B8A8_TYPELESS", UPGRADE_TYPE_OUTPUT_RATIO},
+              {"Upgrade_B8G8R8A8_TYPELESS", UPGRADE_TYPE_OUTPUT_RATIO},
+              {"Upgrade_R11G11B10_FLOAT", UPGRADE_TYPE_OUTPUT_RATIO},
+            },
+        },
+        {
+            "SonicRacingCrossWorlds",
+            {
+                {"Upgrade_R10G10B10A2_UNORM", UPGRADE_TYPE_OUTPUT_RATIO},
             },
         },
 
@@ -852,11 +877,14 @@ bool OnDraw(
       return false;
     }
 
+    std::string prefix = custom_shaders.contains(pixel_shader_hash)
+                             ? "lutbuilder_"
+                             : "lutbuilder_new_";
     renodx::utils::shader::dump::DumpShader(
         pixel_shader_hash,
         shader_data.value(),
         reshade::api::pipeline_subobject_type::pixel_shader,
-        "lutbuilder_");
+        prefix);
 
   } catch (...) {
     std::stringstream s;
@@ -882,7 +910,6 @@ bool OnDispatch(
 
   auto compute_shader_hash = renodx::utils::shader::GetCurrentComputeShaderHash(compute_state);
   if (compute_shader_hash == 0u) return false;
-  // if (custom_shaders.contains(compute_shader_hash)) return false;
   if (g_dumped_shaders.contains(compute_shader_hash)) return false;
 
   auto* cmd_list_data = renodx::utils::data::Get<CommandListData>(cmd_list);
@@ -1064,11 +1091,15 @@ bool OnDispatch(
       return false;
     }
 
+    std::string prefix = custom_shaders.contains(compute_shader_hash)
+                             ? "lutbuilder_"
+                             : "lutbuilder_new_";
+
     renodx::utils::shader::dump::DumpShader(
         compute_shader_hash,
         shader_data.value(),
         reshade::api::pipeline_subobject_type::pixel_shader,
-        "lutbuilder_");
+        prefix);
 
   } catch (...) {
     std::stringstream s;
