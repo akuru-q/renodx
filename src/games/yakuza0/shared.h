@@ -22,6 +22,8 @@
 #define RENODX_SWAP_CHAIN_CLAMP_COLOR_SPACE  renodx::color::convert::COLOR_SPACE_BT2020
 #define RENODX_TONE_MAP_WORKING_COLOR_SPACE  renodx::color::convert::COLOR_SPACE_BT2020
 #define CUSTOM_HDR_VIDEOS                    shader_injection.custom_hdr_videos
+#define RENODX_COLOR_GRADE_HIGHLIGHTS_VERSION 2
+#define CUSTOM_CG_COUNT                      shader_injection.custom_cg_count
 
 // Must be 32bit aligned
 // Should be 4x32
@@ -43,13 +45,14 @@ struct ShaderInjectData {
   float tone_map_per_channel;
   float gamma_correction;
   float custom_hdr_videos;
+  float custom_cg_count;
 };
 
 #ifndef __cplusplus
 #if ((__SHADER_TARGET_MAJOR == 5 && __SHADER_TARGET_MINOR >= 1) || __SHADER_TARGET_MAJOR >= 6)
-cbuffer injected_buffer : register(b13, space50) {
+cbuffer injected_buffer : register(b11, space50) {
 #elif (__SHADER_TARGET_MAJOR < 5) || ((__SHADER_TARGET_MAJOR == 5) && (__SHADER_TARGET_MINOR < 1))
-cbuffer injected_buffer : register(b13) {
+cbuffer injected_buffer : register(b11) {
 #endif
   ShaderInjectData shader_injection : packoffset(c0);
 }
