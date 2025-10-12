@@ -5,7 +5,11 @@ static float3 g_untonemapped;
 void ProcessUntonemapped(inout float3 untonemapped) {
   if (RENODX_TONE_MAP_TYPE == 0.f) return;
 
-  untonemapped = renodx::color::srgb::DecodeSafe(untonemapped);
+  if (CUSTOM_CG_COUNT <= 1.f) {
+    untonemapped = renodx::color::srgb::DecodeSafe(untonemapped);
+  } else {
+    untonemapped = renodx::draw::InvertIntermediatePass(untonemapped);
+  }
 
   g_untonemapped = untonemapped;
 
@@ -78,6 +82,13 @@ float3 ApplyExponentialRollOff(float3 color) {
 
 float4 ApplyToneMapScaling(float4 o0) {
   float3 color = renodx::color::srgb::DecodeSafe(o0.rgb);
+
+  [branch]
+  if (CUSTOM_CG_COUNT > 1.f) {
+    color = renodx::tonemap::UpgradeToneMap(g_untonemapped, renodx::tonemap::renodrt::NeutralSDR(g_untonemapped), color, 1.f);
+
+    return float4(renodx::draw::RenderIntermediatePass(color), 1.f);
+  }
 
   [branch]
   if (RENODX_TONE_MAP_TYPE == 6.f) {
