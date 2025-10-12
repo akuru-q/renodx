@@ -22,9 +22,62 @@
 
 namespace {
 
-renodx::mods::shader::CustomShaders custom_shaders = {__ALL_CUSTOM_SHADERS};
-
 ShaderInjectData shader_injection;
+
+bool AddToCgCount(reshade::api::command_list* cmd_list) {
+  shader_injection.custom_cg_count += 1.f;
+  return true;
+}
+
+renodx::mods::shader::CustomShaders custom_shaders = {
+  CustomShaderEntry(0x27B872F2), // final
+  CustomShaderEntry(0x6370B56D), // movie
+
+  // cg permutations
+  CustomShaderEntryCallback(0x058BF000, &AddToCgCount),
+  CustomShaderEntryCallback(0x05B43BDB, &AddToCgCount),
+  CustomShaderEntryCallback(0x0C595E87, &AddToCgCount),
+  CustomShaderEntryCallback(0x0D3202D5, &AddToCgCount),
+  CustomShaderEntryCallback(0x1C1CAB76, &AddToCgCount),
+  CustomShaderEntryCallback(0x38FD9EBD, &AddToCgCount),
+  CustomShaderEntryCallback(0x42D32094, &AddToCgCount),
+  CustomShaderEntryCallback(0x43863885, &AddToCgCount),
+  CustomShaderEntryCallback(0x48B3F6AE, &AddToCgCount),
+  CustomShaderEntryCallback(0x4A134172, &AddToCgCount),
+  CustomShaderEntryCallback(0x4BBB3C60, &AddToCgCount),
+  CustomShaderEntryCallback(0x4CB0D887, &AddToCgCount),
+  CustomShaderEntryCallback(0x4E764ED8, &AddToCgCount),			
+  CustomShaderEntryCallback(0x527D626B, &AddToCgCount),
+  CustomShaderEntryCallback(0x55FDC030, &AddToCgCount),
+  CustomShaderEntryCallback(0x5AC3F7CD, &AddToCgCount),
+  CustomShaderEntryCallback(0x5EE2913B, &AddToCgCount),
+  CustomShaderEntryCallback(0x613EADB8, &AddToCgCount),
+  CustomShaderEntryCallback(0x64FFC5C7, &AddToCgCount),
+  CustomShaderEntryCallback(0x6BE6F0AC, &AddToCgCount),
+  CustomShaderEntryCallback(0x6D4B8F91, &AddToCgCount),
+  CustomShaderEntryCallback(0x7D90228C, &AddToCgCount),
+  CustomShaderEntryCallback(0x81F6BDCB, &AddToCgCount),
+  CustomShaderEntryCallback(0x8B3613BE, &AddToCgCount),
+  CustomShaderEntryCallback(0x9B9DE740, &AddToCgCount),
+  CustomShaderEntryCallback(0x9D6EF05E, &AddToCgCount),
+  CustomShaderEntryCallback(0x9F274920, &AddToCgCount),
+  CustomShaderEntryCallback(0xA540C9FD, &AddToCgCount),
+  CustomShaderEntryCallback(0xB182D89E, &AddToCgCount),
+  CustomShaderEntryCallback(0xB6AFEDAA, &AddToCgCount),
+  CustomShaderEntryCallback(0xC416F8B5, &AddToCgCount),
+  CustomShaderEntryCallback(0xCF7D978E, &AddToCgCount),
+  CustomShaderEntryCallback(0xD0DB8FFB, &AddToCgCount),
+  CustomShaderEntryCallback(0xD1E67953, &AddToCgCount),
+  CustomShaderEntryCallback(0xD3D23323, &AddToCgCount),
+  CustomShaderEntryCallback(0xEA23BEA5, &AddToCgCount),
+  CustomShaderEntryCallback(0xEAFA598D, &AddToCgCount),
+  CustomShaderEntryCallback(0xED23E647, &AddToCgCount),
+  CustomShaderEntryCallback(0xF22A8AF9, &AddToCgCount),
+  CustomShaderEntryCallback(0xF4418B04, &AddToCgCount),
+  CustomShaderEntryCallback(0xF6463657, &AddToCgCount),
+  CustomShaderEntryCallback(0xFA1FD927, &AddToCgCount),
+  CustomShaderEntryCallback(0xFD1A82FE, &AddToCgCount),
+};
 
 renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSettings(
 {renodx::templates::settings::CreateDefaultSettings({
@@ -167,6 +220,16 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize) {
   fired_on_init_swapchain = true;
 }
 
+void OnPresent(
+    reshade::api::command_queue* queue,
+    reshade::api::swapchain* swapchain,
+    const reshade::api::rect* source_rect,
+    const reshade::api::rect* dest_rect,
+    uint32_t dirty_rect_count,
+    const reshade::api::rect* dirty_rects) {
+  shader_injection.custom_cg_count = 0.f;
+}
+
 }  // namespace
 
 extern "C" __declspec(dllexport) constexpr const char* NAME = "RenoDX";
@@ -177,6 +240,9 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
     case DLL_PROCESS_ATTACH:
       if (!reshade::register_addon(h_module)) return FALSE;
       reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
+
+      renodx::mods::shader::expected_constant_buffer_index = 11;
+      renodx::mods::swapchain::expected_constant_buffer_index = 11;
 
       renodx::mods::swapchain::use_resource_cloning = true;
       renodx::mods::swapchain::swap_chain_proxy_vertex_shader = __swap_chain_proxy_vertex_shader;
@@ -195,9 +261,11 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
           .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
       });
 
+      reshade::register_event<reshade::addon_event::present>(OnPresent);
       break;
     case DLL_PROCESS_DETACH:
       reshade::unregister_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
+      reshade::unregister_event<reshade::addon_event::present>(OnPresent);
       reshade::unregister_addon(h_module);
       break;
   }
