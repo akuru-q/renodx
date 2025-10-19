@@ -1,10 +1,78 @@
 #include "./shared.h"
 
 static float3 g_untonemapped;
+static float3 g_tm_skipped;
+
+float3 YakuzaTonemap(float3 color) {
+  float3 color2, color3 = 0.f;
+
+  color3 = color + color;
+  color2 = color * float3(0.300000012, 0.300000012, 0.300000012) + float3(0.0500000007, 0.0500000007, 0.0500000007);
+  color2 = color3 * color2 + float3(0.00400000019, 0.00400000019, 0.00400000019);
+  color = color * float3(0.300000012, 0.300000012, 0.300000012) + float3(0.5, 0.5, 0.5);
+  color = color3 * color + float3(0.0599999987, 0.0599999987, 0.0599999987);
+  color = color2 / color;
+  color = float3(-0.0666666701, -0.0666666701, -0.0666666701) + color;
+  return saturate(float3(1.37906432, 1.37906432, 1.37906432) * color);
+}
+
+void MarkerFunction1(inout float3 color1, float cb_val1) {
+  [branch] if (RENODX_TONE_MAP_TYPE == 0.f) return;
+
+  g_tm_skipped = color1;
+
+  float midgray_val = 0.18f;
+  float3 midgray = float3(midgray_val, midgray_val, midgray_val);
+  midgray = YakuzaTonemap(midgray);
+
+  g_tm_skipped *= midgray / midgray_val;
+
+  return;
+}
+
+void MarkerFunction2(inout float3 color) {
+  [branch] if (RENODX_TONE_MAP_TYPE == 0.f) return;
+
+  color = g_tm_skipped;
+
+  return;
+}
+
+void TonemapSDR(inout float4 color) {
+  [branch] if (RENODX_TONE_MAP_TYPE == 0.f) return;
+
+  color = renodx::color::srgb::DecodeSafe(color);
+
+  color.rgb = renodx::tonemap::renodrt::NeutralSDR(color.rgb);
+  color.a = renodx::tonemap::ExponentialRollOff(color.a, 0, 1);
+
+  color = renodx::color::srgb::EncodeSafe(color);
+
+  return;
+}
+
+void TonemapSDR(inout float3 color) {
+  [branch] if (RENODX_TONE_MAP_TYPE == 0.f) return;
+
+  color = renodx::color::srgb::DecodeSafe(color);
+
+  color.rgb = renodx::tonemap::renodrt::NeutralSDR(color.rgb);
+
+  color = renodx::color::srgb::EncodeSafe(color);
+
+  return;
+}
+
+void ScaleBloom(inout float4 color) {
+  if (RENODX_TONE_MAP_TYPE != 0.f) {
+    color.rgb *= CUSTOM_BLOOM;
+  }
+}
 
 void ProcessUntonemapped(inout float3 untonemapped) {
-  if (RENODX_TONE_MAP_TYPE == 0.f) return;
+  [branch] if (RENODX_TONE_MAP_TYPE == 0.f) return;
 
+  [branch]
   if (CUSTOM_CG_COUNT <= 1.f) {
     untonemapped = renodx::color::srgb::DecodeSafe(untonemapped);
   } else {
@@ -17,6 +85,7 @@ void ProcessUntonemapped(inout float3 untonemapped) {
 
   untonemapped = renodx::color::srgb::EncodeSafe(untonemapped);
 }
+
 
 float3 InvRenoDRT(float3 color) {
   float y = renodx::color::y::from::BT709(color);
@@ -109,4 +178,34 @@ float4 ApplyToneMapScaling(float4 o0) {
   }
 
   return float4(renodx::draw::RenderIntermediatePass(color), 1.f);
+}
+
+// Only applies tonemapping if no color grading shader is present (eg karaoke)
+float3 ApplyToneMapScalingPreFxaa(float3 color) {
+  [branch]
+  if (CUSTOM_CG_COUNT == 0.f) {
+    color = renodx::color::srgb::DecodeSafe(color);
+
+    [branch]
+    if (RENODX_TONE_MAP_TYPE == 6.f) {
+      renodx::draw::Config draw_config = renodx::draw::BuildConfig();
+      draw_config.peak_white_nits = 10000.f;
+      draw_config.tone_map_type = 3.f;
+      // draw_config.tone_map_hue_correction = 0.f;
+      // draw_config.tone_map_hue_shift = 0.f;
+      draw_config.tone_map_per_channel = 0.f;
+
+      color = renodx::draw::ToneMapPass(color, draw_config);
+
+      color = ApplyExponentialRollOff(color);
+    } else if (RENODX_TONE_MAP_TYPE == 3.f) {
+      color = renodx::draw::ToneMapPass(color);
+    } else {
+      color = saturate(color);
+    }
+
+    return renodx::draw::RenderIntermediatePass(color);
+  }
+
+  return color;
 }

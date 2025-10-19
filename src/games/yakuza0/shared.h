@@ -24,6 +24,7 @@
 #define CUSTOM_HDR_VIDEOS                    shader_injection.custom_hdr_videos
 #define RENODX_COLOR_GRADE_HIGHLIGHTS_VERSION 2
 #define CUSTOM_CG_COUNT                      shader_injection.custom_cg_count
+#define CUSTOM_BLOOM                         shader_injection.custom_bloom
 
 // Must be 32bit aligned
 // Should be 4x32
@@ -46,6 +47,7 @@ struct ShaderInjectData {
   float gamma_correction;
   float custom_hdr_videos;
   float custom_cg_count;
+  float custom_bloom;
 };
 
 #ifndef __cplusplus
