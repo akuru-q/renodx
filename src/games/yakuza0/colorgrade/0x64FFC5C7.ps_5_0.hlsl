@@ -49,5 +49,7 @@ void main(
 
   o0 = ApplyToneMapScaling(o0);
 
+  //o0.rb = 0; // green, smile burger!
+
   return;
 }

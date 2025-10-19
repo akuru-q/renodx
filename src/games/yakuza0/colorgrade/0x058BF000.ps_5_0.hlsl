@@ -69,7 +69,7 @@ void main(
   o0.xyz = saturate(r1.xyz * r0.xyz);
   o0.w = 1;
 
-  o0 = ApplyToneMapScaling(o0);
+  o0 = ApplyToneMapScaling(o0); // cutscene
 
   return;
 }
