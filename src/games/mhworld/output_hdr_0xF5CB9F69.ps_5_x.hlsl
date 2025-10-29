@@ -42,7 +42,10 @@ void main(
   r0.xyz = tBaseMap.Sample(SSSystemCopy_s, v1.xy).xyz;
 
   if (RENODX_TONE_MAP_TYPE) {
-    o0.rgb = renodx::draw::SwapChainPass(r0.rgb);
+    renodx::draw::Config draw_config = renodx::draw::BuildConfig();
+    draw_config.tone_map_type = 3.f;
+
+    o0.rgb = renodx::draw::SwapChainPass(r0.rgb, draw_config);
     o0.w = 1.f;
     
     return; // skip output shader adjustments

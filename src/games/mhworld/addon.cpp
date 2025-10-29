@@ -26,13 +26,16 @@ renodx::mods::shader::CustomShaders custom_shaders = {__ALL_CUSTOM_SHADERS};
 
 ShaderInjectData shader_injection;
 
-renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSettings(
-{renodx::templates::settings::CreateDefaultSettings({
-  {"ToneMapType", &shader_injection.tone_map_type},
+renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSettings({
+  renodx::templates::settings::CreateDefaultSettings({
+    {"ToneMapType", {.binding = &shader_injection.tone_map_type, .labels = {"Vanilla HDR", "Vanilla HDR (deactivated sliders)", "Vanilla SDR", "RenoDRT", "RenoDRT + DICE", "RenoDRT + DICE2", "RenoDRT + LUT fix"}, .parse = [](float value) { return value; }}}}),
+  renodx::templates::settings::CreateDefaultSettings({ 
   {"ToneMapPeakNits", &shader_injection.peak_white_nits},
   {"ToneMapGameNits", &shader_injection.diffuse_white_nits},
   {"ToneMapUINits", &shader_injection.graphics_white_nits},
   {"ToneMapGammaCorrection", &shader_injection.gamma_correction},
+  {"ToneMapHueCorrection", &shader_injection.tone_map_hue_correction},
+  {"ToneMapHueShift", &shader_injection.tone_map_hue_shift},
   {"ToneMapScaling", &shader_injection.tone_map_per_channel},
   {"ColorGradeExposure", &shader_injection.tone_map_exposure},
   {"ColorGradeHighlights", &shader_injection.tone_map_highlights},
@@ -209,6 +212,9 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       //renodx::mods::swapchain::swap_chain_proxy_vertex_shader = __swap_chain_proxy_vertex_shader;
       //renodx::mods::swapchain::swap_chain_proxy_pixel_shader = __swap_chain_proxy_pixel_shader;
       //renodx::mods::swapchain::swapchain_proxy_revert_state = true;
+
+      renodx::mods::swapchain::use_resize_buffer_on_demand = true;
+      renodx::mods::swapchain::use_resize_buffer = true;
 
       // fp11 upgrades only for nvidia
       reshade::register_event<reshade::addon_event::init_device>(OnInitDevice);

@@ -48,21 +48,71 @@ Texture3D<float4> tLUT3DMap0 : register(t1);
 // 3Dmigoto declarations
 #define cmp -
 
-/// Applies Exponential Roll-Off tonemapping using the maximum channel.
-/// Used to fit the color into a 0–output_max range for SDR LUT compatibility.
-float3 ToneMapMaxCLL(float3 color, float rolloff_start = 0.375f, float output_max = 1.f) {
-  color = min(color, 100.f);
-  float peak = max(color.r, max(color.g, color.b));
-  peak = min(peak, 100.f);
-  float log_peak = log2(peak);
+float3 VanillaTonemap(float3 color) {
+  const float fShouldStr = 0.25;
+  const float fLinearStr = 0.3;
+  const float fIntermediate = 1.2;
+  const float fS1 = 0.033;
+  const float fS2 = 0.06;
+  const float fS3 = 0.002;
+  const float fS4 = 0.045;
 
-  // Apply exponential shoulder in log space
-  float log_mapped = renodx::tonemap::ExponentialRollOff(log_peak, log2(rolloff_start), log2(output_max));
-  float scale = exp2(log_mapped - log_peak);  // How much to compress all channels
-
-  return min(output_max, color * scale);
+  return fIntermediate * (-fS1 + (((color * fLinearStr + fS4) * color + fS3) / ((color * fShouldStr + fLinearStr) * color + fS2)));
 }
 
+float VanillaTonemap(float color) {
+  const float fShouldStr = 0.25;
+  const float fLinearStr = 0.3;
+  const float fIntermediate = 1.2;
+  const float fS1 = 0.033;
+  const float fS2 = 0.06;
+  const float fS3 = 0.002;
+  const float fS4 = 0.045;
+
+  return fIntermediate * (-fS1 + (((color * fLinearStr + fS4) * color + fS3) / ((color * fShouldStr + fLinearStr) * color + fS2)));
+}
+
+float3 VanillaTonemapByLum(float3 color) {
+  const float source_luminance = renodx::color::y::from::BT709(color);
+
+  [branch]
+  if (source_luminance > 0.0f) {
+    const float compressed_luminance = VanillaTonemap(source_luminance);
+    color *= compressed_luminance / source_luminance;
+  }
+
+  return color;
+}
+
+float3 ExponentialRollOffByLum(float3 color, float output_luminance_max, float highlights_shoulder_start = 0.f) {
+  const float source_luminance = renodx::color::y::from::BT709(color);
+
+  [branch]
+  if (source_luminance > 0.0f) {
+    const float compressed_luminance = renodx::tonemap::ExponentialRollOff(source_luminance, highlights_shoulder_start, output_luminance_max);
+    color *= compressed_luminance / source_luminance;
+  }
+
+  return color;
+}
+
+float3 applyExponentialRollOff(float3 color) {
+  const float paperWhite = RENODX_DIFFUSE_WHITE_NITS / renodx::color::srgb::REFERENCE_WHITE;
+
+  const float peakWhite = RENODX_PEAK_WHITE_NITS / renodx::color::srgb::REFERENCE_WHITE;
+
+  // const float highlightsShoulderStart = paperWhite;
+  const float highlightsShoulderStart = 1.f;
+
+  [branch]
+  if (RENODX_TONE_MAP_PER_CHANNEL == 0.f) {
+    color = ExponentialRollOffByLum(color * paperWhite, peakWhite, highlightsShoulderStart) / paperWhite;
+  } else {
+    color = renodx::tonemap::ExponentialRollOff(color * paperWhite, highlightsShoulderStart, peakWhite) / paperWhite;
+  }
+
+  return color; 
+}
 
 void main(
   float4 v0 : SV_POSITION0,
@@ -79,10 +129,17 @@ void main(
   
   float3 untonemapped = r0.rgb;
 
-  if (RENODX_TONE_MAP_TYPE) {
+  [branch]
+  if (RENODX_TONE_MAP_TYPE == 3.f || RENODX_TONE_MAP_TYPE == 4.f) {
     r0.rgb = renodx::tonemap::dice::BT709(untonemapped, 4.f, 1.f);  // LUT clips at 2k nits + highlight restoration
   }
-  
+
+  [branch]
+  if (RENODX_TONE_MAP_TYPE >= 5.f) {
+    r0.rgb = ExponentialRollOffByLum(untonemapped, 4.f, 0.f);  // LUT clips at 2k nits + highlight
+  }
+
+  [branch]
   if (bEnableColorGrading != 0) {
     r1.x = iLUTSize;
     r1.x = 1 / r1.x;
@@ -102,7 +159,14 @@ void main(
     r2.xyz = bIsLinearToPQ ? r3.xyz : r2.xyz;
     r1.x = 1 + -r1.x;
     r1.xyw = r2.xyz * r1.xxx + r1.yyy;
-    r1.xyw = tLUT3DMap0.SampleLevel(SSColorGrading_s, r1.xyw, 0).xyz;
+
+    [branch]
+    if (RENODX_TONE_MAP_TYPE) {
+      r1.xyw = renodx::lut::SampleTetrahedral(tLUT3DMap0, r1.xyw, 32u);
+    } else {
+      r1.xyw = tLUT3DMap0.SampleLevel(SSColorGrading_s, r1.xyw, 0).xyz;
+    }
+    
     r2.xyz = saturate(r1.xyw);
     r2.xyz = log2(r2.xyz);
     r2.xyz = float3(0.0126833133,0.0126833133,0.0126833133) * r2.xyz;
@@ -117,23 +181,95 @@ void main(
     r1.xyw = bIsPQToLinear ? r2.xyz : r1.xyw;
     r0.xyz = r1.xyw * r1.zzz;
   }
+
+  o0.rgb = r0.rgb;
+
+  [branch]
+  if (RENODX_TONE_MAP_TYPE == 2.f) {
+    o0.rgb = VanillaTonemap(o0.rgb);
+  } 
   
-  if (RENODX_TONE_MAP_TYPE) {
+  [branch]
+  if (RENODX_TONE_MAP_TYPE == 3.f) {
+    //float3 graded = ToneMapMaxCLL(r0.rgb);
+    //graded = renodx::color::correct::Hue(graded, renodx::tonemap::ACESFittedBT709(r0.rgb), 0.5f);
+
+    float3 graded = renodx::tonemap::renodrt::NeutralSDR(r0.rgb);
+    graded = lerp(r0.rgb, graded, saturate(renodx::color::y::from::BT709(2.f * graded)));
+
+    //renodx::draw::Config draw_config = renodx::draw::BuildConfig();
+    //draw_config.tone_map_type = 3.f;
+    //o0.rgb = renodx::draw::ToneMapPass(untonemapped, graded, draw_config);
+    //o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb, draw_config);
+
+    float3 mg = VanillaTonemap(float3(0.18f, 0.18f, 0.18f));
+    untonemapped *= mg / 0.18f;  
+
+    o0.rgb = renodx::draw::ToneMapPass(untonemapped, graded);
+  }
+
+  [branch]
+  if (RENODX_TONE_MAP_TYPE == 4.f || RENODX_TONE_MAP_TYPE == 5.f) {
+    float3 graded = renodx::tonemap::renodrt::NeutralSDR(r0.rgb);
+    graded = lerp(r0.rgb, graded, saturate(renodx::color::y::from::BT709(2.f * graded)));
+
+    float3 mg = VanillaTonemap(float3(0.18f, 0.18f, 0.18f));
+    untonemapped *= mg / 0.18f;
+
+    renodx::draw::Config draw_config = renodx::draw::BuildConfig();
+    draw_config.peak_white_nits = 10000.f;
+    draw_config.tone_map_type = 3.f;
+    draw_config.tone_map_per_channel = 0.f;
+
+    o0.rgb = renodx::draw::ToneMapPass(untonemapped, graded, draw_config);
+
+    o0.rgb = applyExponentialRollOff(o0.rgb);
+  }
+
+  [branch]
+  if (RENODX_TONE_MAP_TYPE == 6.f) {
     o0.rgb = r0.rgb;
 
-    float3 graded = ToneMapMaxCLL(r0.rgb);
-    o0.rgb = renodx::draw::ToneMapPass(untonemapped, graded);
-    o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
+    o0.rgb = renodx::tonemap::UpgradeToneMap(
+        untonemapped,
+        ExponentialRollOffByLum(untonemapped, 4.f, 0.f),
+        o0.rgb,
+        1.f
+    );
 
+    float3 mg = VanillaTonemap(float3(0.18f, 0.18f, 0.18f));
+    o0.rgb *= mg / 0.18f;
+
+    [branch]
+    if (RENODX_TONE_MAP_HUE_SHIFT >= 0.5f) {
+      // only use this
+      o0.rgb = renodx::color::correct::Hue(o0.rgb, (VanillaTonemap(o0.rgb)), RENODX_TONE_MAP_HUE_CORRECTION);
+    } else {
+      o0.rgb = renodx::color::correct::Hue(o0.rgb, (VanillaTonemapByLum(o0.rgb)), RENODX_TONE_MAP_HUE_CORRECTION);
+    }
+
+    renodx::draw::Config draw_config = renodx::draw::BuildConfig();
+    draw_config.peak_white_nits = 10000.f;
+    draw_config.tone_map_type = 3.f;
+    draw_config.tone_map_hue_shift = 0.f;
+    draw_config.tone_map_hue_correction = 0.f;
+    draw_config.tone_map_per_channel = 0.f;
+
+    o0.rgb = renodx::draw::ToneMapPass(o0.rgb, draw_config);
+
+    o0.rgb = applyExponentialRollOff(o0.rgb);
+  }  
+
+  [branch]
+  if (RENODX_TONE_MAP_TYPE) {
+    o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
     o0.w = r0.w;
-    
     return;
   }
 
   r1.x = cmp(iToneMapType == 5);
-  if (r1.x != 0) {  // sdr path
-  //if (1) {
-    // Narkowicz ACES
+  if (r1.x != 0) { // unused
+    // incomplete Narkowicz ACES
     r1.xyz = r0.xyz * float3(2.50999999,2.50999999,2.50999999) + float3(0.0299999993,0.0299999993,0.0299999993);
     r1.xyz = r1.xyz * r0.xyz;
     r2.xyz = r0.xyz * float3(2.43000007,2.43000007,2.43000007) + float3(0.589999974,0.589999974,0.589999974);
@@ -141,7 +277,7 @@ void main(
     r0.xyz = r1.xyz / r2.xyz;
   } else {
     r1.x = cmp(iToneMapType == 6);
-    if (r1.x != 0) {  // hdr path
+    if (r1.x != 0) {  // sdr + hdr tonemapper
 	    // per channel compression?
       r1.xyz = r0.xyz * fLinearStr + fS4;
       r1.xyz = r1.xyz * r0.xyz + fS3;
@@ -200,6 +336,12 @@ void main(
         }
       }
     }
+  }
+
+  if (RENODX_TONE_MAP_TYPE) {
+    o0.rgb = r0.rgb;
+    o0.w = r0.w;
+    return;
   }
   
   r1.x = cmp(bHdrOutput != 0);
