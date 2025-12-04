@@ -3,6 +3,19 @@
 static float3 g_untonemapped;
 static float3 g_tm_skipped;
 
+float3 ApplyPerChannelBlowoutHueShift(float3 untonemapped) {
+  if (RENODX_TONE_MAP_TYPE != 0 && RENODX_TONE_MAP_HUE_SHIFT > 0.f) {
+    float calculated_peak = (0.01f * pow(100.f - (RENODX_TONE_MAP_HUE_SHIFT * 100.f), 2.f));
+
+    //float3 graded_color = renodx::tonemap::HermiteSplinePerChannelRolloff(untonemapped, calculated_peak, 100.f);
+    float3 graded_color = renodx::tonemap::ExponentialRollOff(untonemapped, 0.f,  calculated_peak);
+    float3 color = renodx::color::correct::Chrominance(untonemapped, graded_color, 1.f, 0.f, 1u);
+    color = renodx::color::correct::Hue(color, graded_color, RENODX_TONE_MAP_HUE_CORRECTION, 0u);
+    return color;
+  }
+  return untonemapped;
+}
+
 float3 YakuzaTonemap(float3 color) {
   float3 color2, color3 = 0.f;
 
@@ -86,7 +99,6 @@ void ProcessUntonemapped(inout float3 untonemapped) {
   untonemapped = renodx::color::srgb::EncodeSafe(untonemapped);
 }
 
-
 float3 InvRenoDRT(float3 color) {
   float y = renodx::color::y::from::BT709(color);
   float untonemapped_y = renodx::tonemap::inverse::Reinhard(y);
@@ -149,6 +161,32 @@ float3 ApplyExponentialRollOff(float3 color) {
   }
 }
 
+float3 ApplyRenoTonemap(float3 color) {
+  [branch]
+  if (RENODX_TONE_MAP_TYPE == 6.f) {
+    renodx::draw::Config draw_config = renodx::draw::BuildConfig();
+    draw_config.peak_white_nits = 10000.f;
+    draw_config.tone_map_type = 3.f;
+    draw_config.tone_map_hue_correction = 0.f;
+    draw_config.tone_map_hue_shift = 0.f;
+    draw_config.tone_map_per_channel = 0.f;
+
+    color = renodx::draw::ToneMapPass(g_untonemapped, color, draw_config);
+    color = ApplyExponentialRollOff(color);
+    color = ApplyPerChannelBlowoutHueShift(color);
+  } else if (RENODX_TONE_MAP_TYPE == 3.f) {
+    renodx::draw::Config draw_config = renodx::draw::BuildConfig();
+    draw_config.tone_map_hue_correction = 0.f;
+    draw_config.tone_map_hue_shift = 0.f;
+
+    color = renodx::draw::ToneMapPass(g_untonemapped, color, draw_config);
+    color = ApplyPerChannelBlowoutHueShift(color);
+  } else {
+    color = saturate(color);
+  }
+  return color;
+}
+
 float4 ApplyToneMapScaling(float4 o0) {
   float3 color = renodx::color::srgb::DecodeSafe(o0.rgb);
 
@@ -159,23 +197,7 @@ float4 ApplyToneMapScaling(float4 o0) {
     return float4(renodx::draw::RenderIntermediatePass(color), 1.f);
   }
 
-  [branch]
-  if (RENODX_TONE_MAP_TYPE == 6.f) {
-    renodx::draw::Config draw_config = renodx::draw::BuildConfig();
-    draw_config.peak_white_nits = 10000.f;
-    draw_config.tone_map_type = 3.f;
-    // draw_config.tone_map_hue_correction = 0.f;
-    // draw_config.tone_map_hue_shift = 0.f;
-    draw_config.tone_map_per_channel = 0.f;
-
-    color = renodx::draw::ToneMapPass(g_untonemapped, color, draw_config);
-
-    color = ApplyExponentialRollOff(color);
-  } else if (RENODX_TONE_MAP_TYPE == 3.f) {
-    color = renodx::draw::ToneMapPass(g_untonemapped, color);
-  } else {
-    color = saturate(color);
-  }
+  color = ApplyRenoTonemap(color);
 
   return float4(renodx::draw::RenderIntermediatePass(color), 1.f);
 }
@@ -186,23 +208,7 @@ float3 ApplyToneMapScalingPreFxaa(float3 color) {
   if (CUSTOM_CG_COUNT == 0.f) {
     color = renodx::color::srgb::DecodeSafe(color);
 
-    [branch]
-    if (RENODX_TONE_MAP_TYPE == 6.f) {
-      renodx::draw::Config draw_config = renodx::draw::BuildConfig();
-      draw_config.peak_white_nits = 10000.f;
-      draw_config.tone_map_type = 3.f;
-      // draw_config.tone_map_hue_correction = 0.f;
-      // draw_config.tone_map_hue_shift = 0.f;
-      draw_config.tone_map_per_channel = 0.f;
-
-      color = renodx::draw::ToneMapPass(color, draw_config);
-
-      color = ApplyExponentialRollOff(color);
-    } else if (RENODX_TONE_MAP_TYPE == 3.f) {
-      color = renodx::draw::ToneMapPass(color);
-    } else {
-      color = saturate(color);
-    }
+    color = ApplyRenoTonemap(color);
 
     return renodx::draw::RenderIntermediatePass(color);
   }
