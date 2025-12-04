@@ -622,7 +622,7 @@ renodx::mods::shader::CustomShaders custom_shaders = {
 
 renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSettings(
 {renodx::templates::settings::CreateDefaultSettings({
-  {"ToneMapType", {.binding = &shader_injection.tone_map_type, .default_value = 2.f, .labels = {"Vanilla", "RenoDRT", "Exponential Rolloff"}}},
+  {"ToneMapType", {.binding = &shader_injection.tone_map_type}},
   {"ToneMapPeakNits",  {.binding = &shader_injection.peak_white_nits}},
   {"ToneMapGameNits",  {.binding = &shader_injection.diffuse_white_nits}},
   {"ToneMapUINits", {.binding =  &shader_injection.graphics_white_nits}},
