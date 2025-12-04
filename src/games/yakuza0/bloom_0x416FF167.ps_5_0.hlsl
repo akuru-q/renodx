@@ -32,21 +32,23 @@ void main(
   float4 fDest;
 
   r0.xyz = t1.Sample(s1_s, v0.xy).xyz;
-  
-  //TonemapSDR(r0.rgb);
-  //o0.rgb = r2.rgb;
-  //return;
+
+  if (RENODX_TONE_MAP_TYPE != 0.f) {
+    if (CUSTOM_BLOOM == 0.f) {
+      TonemapSDR(r0.rgb);
+      o0.rgb = r0.rgb;
+      return;
+    } else {
+      o0 = 0.f;
+      return;
+    }
+  }
   
   r0.w = dot(float3(0.298911989,0.586610973,0.114478), r0.xyz);
   r1.xyzw = cb9[2].xyzw * r0.xyzw;
   r2.x = 8 & asint(cb13[0].x);
   if (r2.x != 0) {
     r2.xyz = t0.Sample(s0_s, v0.xy).xyz;
-
-    if (RENODX_TONE_MAP_TYPE != 0.f) {
-      r2.rgb = lerp(r2.rgb, r2.rgb * 0.7f, saturate(renodx::color::y::from::BT709(r2.rgb)));
-    }
-	
     r3.xyz = saturate(-cb9[0].yzw + r2.xyz);
     r2.x = dot(float3(0.298911989,0.586610973,0.114478), r2.xyz);
     r3.w = saturate(-cb9[0].x + r2.x);

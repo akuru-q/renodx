@@ -44,6 +44,9 @@ renodx::mods::shader::CustomShaders custom_shaders = {
   CustomShaderEntry(0x61D49EC3), // pre fxaa
   CustomShaderEntry(0x2F7287D7), // artifacts
 
+  BypassShaderEntry(0x041C3762), // first person low res overlay that adds nothing
+  BypassShaderEntry(0xE8B21A52), // bypass broken batting center shader
+
   // cg permutations
   CustomShaderEntryCallback(0x058BF000, &AddToCgCount),
   CustomShaderEntryCallback(0x05B43BDB, &AddToCgCount),
@@ -624,8 +627,8 @@ renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSe
   {"ToneMapGameNits",  {.binding = &shader_injection.diffuse_white_nits}},
   {"ToneMapUINits", {.binding =  &shader_injection.graphics_white_nits}},
   {"ToneMapGammaCorrection", {.binding =  &shader_injection.gamma_correction}},
-  {"ToneMapHueCorrection", {.binding =  &shader_injection.tone_map_hue_correction}},
-  {"ToneMapHueShift", {.binding =  &shader_injection.tone_map_hue_shift}},
+  {"ToneMapHueCorrection", {.binding =  &shader_injection.tone_map_hue_correction, .default_value = 50.f}},
+  {"ToneMapHueShift", {.binding =  &shader_injection.tone_map_hue_shift, .default_value = 80.f, .label = "Chrominance Correction", .tooltip = "Emulates vanilla SDR chrominance/blowout."}},
   {"ToneMapScaling", {.binding =  &shader_injection.tone_map_per_channel}}, 
   {"ColorGradeExposure",  {.binding = &shader_injection.tone_map_exposure}},
   {"ColorGradeHighlights",  {.binding = &shader_injection.tone_map_highlights}},
@@ -646,6 +649,15 @@ renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSe
       .label = "HDR Videos",
       .section = "Effects",
       .labels = {"Off", "On"},
+  },
+  new renodx::utils::settings::Setting{
+      .key = "CustomBloom",
+      .binding = &shader_injection.custom_bloom,
+      .value_type = renodx::utils::settings::SettingValueType::INTEGER,
+      .default_value = 0.f,
+      .label = "Broken Bloom",
+      .section = "Effects",
+      .labels = {"Lowered Intensity", "Off"},
   },
   new renodx::utils::settings::Setting{
       .value_type = renodx::utils::settings::SettingValueType::BUTTON,
@@ -688,14 +700,9 @@ renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSe
       .section = "About",
   },
   new renodx::utils::settings::Setting{
-      .value_type = renodx::utils::settings::SettingValueType::BUTTON,
-      .label = "HDR Den Discord",
-      .section = "Links",
-      .group = "button-line-1",
-      .tint = 0x5865F2,
-      .on_change = []() {
-        renodx::utils::platform::LaunchURL("https://discord.gg/XUhv", "tR54yc");
-      },
+      .value_type = renodx::utils::settings::SettingValueType::TEXT,
+      .label = "Special thanks to Chalk for extensive playtesting!",
+      .section = "About",
   },
   new renodx::utils::settings::Setting{
       .value_type = renodx::utils::settings::SettingValueType::BUTTON,
@@ -791,7 +798,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
           .old_format = reshade::api::format::b8g8r8a8_typeless,
           .new_format = reshade::api::format::r16g16b16a16_float, 
-          //.use_resource_view_cloning = true,
+          .use_resource_view_cloning = true,
           .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
           //.ignore_size = true
       });
@@ -799,7 +806,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
       renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
           .old_format = reshade::api::format::b8g8r8a8_unorm,
           .new_format = reshade::api::format::r16g16b16a16_float,
-          //.use_resource_view_cloning = true,
+          .use_resource_view_cloning = true,
           .aspect_ratio = renodx::mods::swapchain::SwapChainUpgradeTarget::BACK_BUFFER,
       });
 
@@ -811,27 +818,27 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved) {
           .dimensions = {1024, 768}
       });
 
-      // bloom
-      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
-          .old_format = reshade::api::format::b8g8r8a8_typeless,
-          .new_format = reshade::api::format::r16g16b16a16_float, 
-          .use_resource_view_cloning = true,
-          .dimensions = {1024, 512},
-      });
-      
-      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
-          .old_format = reshade::api::format::b8g8r8a8_typeless,
-          .new_format = reshade::api::format::r16g16b16a16_typeless, 
-          .use_resource_view_cloning = true,
-          .dimensions = {512, 256}
-      });
-
-      renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
-          .old_format = reshade::api::format::b8g8r8a8_typeless,
-          .new_format = reshade::api::format::r16g16b16a16_typeless, 
-          .use_resource_view_cloning = true,
-          .dimensions = {256, 128}
-      });
+      //// bloom
+      //renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      //    .old_format = reshade::api::format::b8g8r8a8_typeless,
+      //    .new_format = reshade::api::format::r16g16b16a16_float, 
+      //    .use_resource_view_cloning = true,
+      //    .dimensions = {1024, 512},
+      //});
+      //
+      //renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      //    .old_format = reshade::api::format::b8g8r8a8_typeless,
+      //    .new_format = reshade::api::format::r16g16b16a16_typeless, 
+      //    .use_resource_view_cloning = true,
+      //    .dimensions = {512, 256}
+      //});
+//
+      //renodx::mods::swapchain::swap_chain_upgrade_targets.push_back({
+      //    .old_format = reshade::api::format::b8g8r8a8_typeless,
+      //    .new_format = reshade::api::format::r16g16b16a16_typeless, 
+      //    .use_resource_view_cloning = true,
+      //    .dimensions = {256, 128}
+      //});
 
       reshade::register_event<reshade::addon_event::present>(OnPresent);
       break;
