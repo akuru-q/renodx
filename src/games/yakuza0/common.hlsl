@@ -29,7 +29,7 @@ float3 YakuzaTonemap(float3 color) {
   return saturate(float3(1.37906432, 1.37906432, 1.37906432) * color);
 }
 
-void MarkerFunction1(inout float3 color1, float cb_val1) {
+void MaterialPreTonemap(inout float3 color1, float cb_val1) {
   [branch] if (RENODX_TONE_MAP_TYPE == 0.f) return;
 
   g_tm_skipped = color1;
@@ -43,7 +43,7 @@ void MarkerFunction1(inout float3 color1, float cb_val1) {
   return;
 }
 
-void MarkerFunction2(inout float3 color) {
+void MaterialPostTonemap(inout float3 color) {
   [branch] if (RENODX_TONE_MAP_TYPE == 0.f) return;
 
   color = g_tm_skipped;

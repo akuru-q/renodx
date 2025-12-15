@@ -70,7 +70,7 @@ void main(
   r0.xyz = v2.xyz * r0.xyz;
   r1.xyz = cb1[0].xxx * r0.xyz;
 
-  MarkerFunction1(r1.xyz, cb1[0].x);
+  MaterialPreTonemap(r1.xyz, cb1[0].x);
 
   r2.xyz = r1.xyz * float3(0.300000012,0.300000012,0.300000012) + float3(0.0500000007,0.0500000007,0.0500000007);
   r3.xyz = r1.xyz + r1.xyz;
@@ -84,7 +84,7 @@ void main(
   r2.xyz = float3(-0.0666666701,-0.0666666701,-0.0666666701) + r2.xyz;
   r2.xyz = saturate(float3(1.37906432,1.37906432,1.37906432) * r2.xyz);
 
-  MarkerFunction2(r2.xyz);
+  MaterialPostTonemap(r2.xyz);
 
   r2.xyz = sqrt(r2.xyz);
   r3.xyzw = int4(16,0x8000,4,8) & asint(cb13[0].xxxx);
