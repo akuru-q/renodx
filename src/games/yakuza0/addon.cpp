@@ -696,6 +696,11 @@ renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSe
   },
   new renodx::utils::settings::Setting{
       .value_type = renodx::utils::settings::SettingValueType::TEXT,
+      .label = "The game needs a restart if you change resolution or SSAA settings!",
+      .section = "Instructions",
+  },
+  new renodx::utils::settings::Setting{
+      .value_type = renodx::utils::settings::SettingValueType::TEXT,
       .label = "Game mod by akuru, RenoDX Framework by ShortFuse",
       .section = "About",
   },
