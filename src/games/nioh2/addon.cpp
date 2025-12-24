@@ -272,6 +272,16 @@ renodx::utils::settings::Settings settings = {
     //    .parse = [](float value) { return value * 0.02f; },
     //},
     new renodx::utils::settings::Setting{
+        .key = "FxVignette",
+        .binding = &CUSTOM_VIGNETTE,
+        .default_value = 100.f,
+        .label = "Vignette",
+        .section = "Effects",
+        .tooltip = "Adjust the intensity of vignetting in the corners.",
+        .max = 100.f,
+        .parse = [](float value) { return value * 0.01f; },
+    },
+    new renodx::utils::settings::Setting{
         .value_type = renodx::utils::settings::SettingValueType::BUTTON,
         .label = "HDR Look",
         .section = "Presets",
