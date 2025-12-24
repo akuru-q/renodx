@@ -154,6 +154,9 @@ void main(
     r0.x = r0.x * r0.y;
     r0.y = 1 + -g_vLimbDarkenningInfo.w;
     r0.x = r0.x * g_vLimbDarkenningInfo.w + r0.y;
+
+    r0.x = lerp(1.f, r0.x, CUSTOM_VIGNETTE);
+
     r1.xzw = r1.xzw * r0.xxx;
   }
 

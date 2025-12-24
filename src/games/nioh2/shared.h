@@ -30,6 +30,7 @@
 //#define CUSTOM_HDR_VIDEOS                      shader_injection.custom_hdr_videos
 //#define CUSTOM_HDR_VIDEOS_PEAK_NITS            shader_injection.custom_hdr_videos_peak_nits
 #define CUSTOM_IS_HDR_FINAL_SHADER_PRESENT       shader_injection.custom_is_hdr_final_shader_present
+#define CUSTOM_VIGNETTE                          shader_injection.custom_vignette
 
 // Must be 32bit aligned
 // Should be 4x32
@@ -56,6 +57,7 @@ struct ShaderInjectData {
   //float custom_tone_map_configuration;
   //float custom_hdr_videos;
   //float custom_hdr_videos_peak_nits;
+  float custom_vignette;
 };
 
 #ifndef __cplusplus
