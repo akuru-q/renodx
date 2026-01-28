@@ -25,13 +25,13 @@ float4 Gamma(float4 color, bool pow_to_srgb = false, float gamma = 2.2f) {
   return float4(Gamma(color.rgb, pow_to_srgb, gamma), color.a);
 }
 
-#define GAMMA_SAFE(T)                                                                   \
-  T GammaSafe(T c, bool pow_to_srgb = false, float gamma = 2.2f) {                      \
-    if (pow_to_srgb) {                                                                  \
-      return renodx::math::Sign(c) * srgb::Decode(color::gamma::Encode(abs(c), gamma)); \
-    } else {                                                                            \
-      return renodx::math::Sign(c) * color::gamma::Decode(srgb::Encode(abs(c)), gamma); \
-    }                                                                                   \
+#define GAMMA_SAFE(T)                                                                      \
+  T GammaSafe(T c, bool pow_to_srgb = false, float gamma = 2.2f) {                         \
+    if (pow_to_srgb) {                                                                     \
+      return renodx::math::CopySign(srgb::Decode(color::gamma::Encode(abs(c), gamma)), c); \
+    } else {                                                                               \
+      return renodx::math::CopySign(color::gamma::Decode(srgb::Encode(abs(c)), gamma), c); \
+    }                                                                                      \
   }
 
 GAMMA_SAFE(float)
@@ -154,9 +154,9 @@ float3 ChrominancedtUCS(
   return result;
 }
 
-float3 Chrominance(float3 incorrect_color, float3 correct_color, float strength = 1.f, float clamp_chrominance_loss = 0.f, uint method = 0u) {
-  if (method == 1u) return ChrominanceICtCp(incorrect_color, correct_color, strength, clamp_chrominance_loss);
-  if (method == 2u) return ChrominancedtUCS(incorrect_color, correct_color, strength, clamp_chrominance_loss);
+float3 Chrominance(float3 incorrect_color, float3 correct_color, float strength = 1.f, float clamp_chrominance_loss = 0.f, int method = 0) {
+  if (method == 1) return ChrominanceICtCp(incorrect_color, correct_color, strength, clamp_chrominance_loss);
+  if (method == 2) return ChrominancedtUCS(incorrect_color, correct_color, strength, clamp_chrominance_loss);
   return ChrominanceOKLab(incorrect_color, correct_color, strength, clamp_chrominance_loss);
 }
 

@@ -1,4 +1,5 @@
 #include "./shared.h"
+#include "./tonemap.hlsli"
 
 float3 GammaCorrectByLuminance(float3 color, bool pow_to_srgb = false) {
   float y_in = renodx::color::y::from::BT709(color);
@@ -9,100 +10,117 @@ float3 GammaCorrectByLuminance(float3 color, bool pow_to_srgb = false) {
   return color;
 }
 
-// take hue from one color and chrominance from another in OKLab space
-float3 HueAndChrominanceOKLab(
-    float3 incorrect_color,
-    float3 hue_reference_color,
-    float3 chrominance_reference_color,
-    float hue_correct_strength = 1.f,
-    float chrominance_correct_strength = 1.f,
-    float clamp_chrominance_loss = 0.f) {
-  if (hue_correct_strength == 0.f && chrominance_correct_strength == 0.f) {
-    return incorrect_color;
-  } else if (hue_correct_strength == 0.f) {
-    return renodx::color::correct::ChrominanceOKLab(incorrect_color, chrominance_reference_color, chrominance_correct_strength, clamp_chrominance_loss);
-  } else if (chrominance_correct_strength == 0.f) {
-    return renodx::color::correct::Hue(incorrect_color, hue_reference_color, hue_correct_strength);
-  }
-
-  float3 incorrect_lab = renodx::color::oklab::from::BT709(incorrect_color);
-  float3 hue_lab = renodx::color::oklab::from::BT709(hue_reference_color);
-  float3 chrominance_lab = renodx::color::oklab::from::BT709(chrominance_reference_color);
-
-  float2 incorrect_ab = incorrect_lab.yz;
-  float2 hue_ab = hue_lab.yz;
-
-  // Compute chrominance (magnitude of the a–b vector)
-  float incorrect_chrominance = length(incorrect_ab);
-  float target_chrominance = length(chrominance_lab.yz);
-
-  // Scale original chrominance vector toward target chrominance
-  float desired_chrominance = lerp(incorrect_chrominance, target_chrominance, chrominance_correct_strength);
-  float scale = renodx::math::DivideSafe(desired_chrominance, incorrect_chrominance, 1.f);
-
-  float t = 1.0f - step(1.0f, scale);  // t = 1 when scale < 1, 0 when scale >= 1
-  scale = lerp(scale, 1.0f, t * clamp_chrominance_loss);
-
-  float adjusted_chrominance = (incorrect_chrominance > 0.f)
-                                   ? incorrect_chrominance * scale
-                                   : desired_chrominance;
-
-  // Blend hue direction between incorrect and reference colors
-  float2 incorrect_dir = renodx::math::DivideSafe(
-      incorrect_ab,
-      float2(incorrect_chrominance, incorrect_chrominance),
-      float2(0.f, 0.f));
-  float hue_chrominance = length(hue_ab);
-  float2 hue_dir = renodx::math::DivideSafe(
-      hue_ab,
-      float2(hue_chrominance, hue_chrominance),
-      incorrect_dir);
-  float2 blended_dir = lerp(incorrect_dir, hue_dir, hue_correct_strength);
-  float blended_len = length(blended_dir);
-  float2 final_dir = renodx::math::DivideSafe(
-      blended_dir,
-      float2(blended_len, blended_len),
-      hue_dir);
-
-  // Apply final hue direction and chroma magnitude
-  float2 final_ab = final_dir * adjusted_chrominance;
-  incorrect_lab.yz = final_ab;
-
-  float3 result = renodx::color::bt709::from::OkLab(incorrect_lab);
-  return renodx::color::bt709::clamp::AP1(result);
-}
-
 float4 Sample2DPackedLUT(float3 srgb_color, SamplerState lut_sampler, Texture2D<float4> lut_tex) {
   if (RENODX_LUT_SAMPLING_TYPE) {
-    srgb_color = srgb_color * 0.984375f + 0.0078125;  // add missing offsets
+    srgb_color = srgb_color * 0.984375f + 0.0078125f;  // add missing offsets
   }
-  // Convert sRGB color to 3D LUT index space (0–15)
-  float3 lut_coord = srgb_color * 15.f;
 
-  // Blue channel determines which 2D tile slice (Z axis)
-  float lut_b = lut_coord.b;
-  uint b_index = (uint)lut_b;
-  uint b_index_next = b_index + 1u;
-  float b_frac = lut_b - float(b_index);  // interpolation weight between slices
+  if (CUSTOM_LUT_TETRAHEDRAL) {
+    const uint size = 16u;
+    const uint tile_size = 16u;
+    const float max_index = (float)(size - 1u);
+  
+    float3 coordinates = saturate(srgb_color) * max_index;
+    int3 point0 = (int3)floor(coordinates);
+    point0 = min(point0, int3((int)size - 2, (int)size - 2, (int)size - 2));
+  
+    float3 fraction = coordinates - (float3)point0;
+  
+    int3 offset0 = int3(0, 0, 0);
+    int3 offset1 = int3(0, 0, 0);
+    int3 offset2 = int3(1, 1, 1);
+    int3 offset3 = int3(1, 1, 1);
+  
+    float3 sorted;
+    if (fraction.r > fraction.g) {
+      if (fraction.g > fraction.b) {
+        offset1.r = 1;
+        offset2.b = 0;
+        sorted = fraction.rgb;
+      } else if (fraction.r > fraction.b) {
+        offset1.r = 1;
+        offset2.g = 0;
+        sorted = fraction.rbg;
+      } else {
+        offset1.b = 1;
+        offset2.g = 0;
+        sorted = fraction.brg;
+      }
+    } else {
+      if (fraction.g <= fraction.b) {
+        offset1.b = 1;
+        offset2.r = 0;
+        sorted = fraction.bgr;
+      } else if (fraction.r >= fraction.b) {
+        offset1.g = 1;
+        offset2.b = 0;
+        sorted = fraction.grb;
+      } else {
+        offset1.g = 1;
+        offset2.r = 0;
+        sorted = fraction.gbr;
+      }
+    }
+  
+    int3 point1 = point0 + offset1;
+    int3 point2 = point0 + offset2;
+    int3 point3 = point0 + offset3;
+  
+    uint2 tile0 = uint2((uint)point0.z & 3u, (uint)point0.z >> 2);
+    uint2 tile1 = uint2((uint)point1.z & 3u, (uint)point1.z >> 2);
+    uint2 tile2 = uint2((uint)point2.z & 3u, (uint)point2.z >> 2);
+    uint2 tile3 = uint2((uint)point3.z & 3u, (uint)point3.z >> 2);
+  
+    uint2 uv0 = uint2(tile0 * tile_size) + uint2((uint)point0.x, (uint)point0.y);
+    uint2 uv1 = uint2(tile1 * tile_size) + uint2((uint)point1.x, (uint)point1.y);
+    uint2 uv2 = uint2(tile2 * tile_size) + uint2((uint)point2.x, (uint)point2.y);
+    uint2 uv3 = uint2(tile3 * tile_size) + uint2((uint)point3.x, (uint)point3.y);
+  
+    float4 texel0 = lut_tex.Load(int3(uv0, 0));
+    float4 texel1 = lut_tex.Load(int3(uv1, 0));
+    float4 texel2 = lut_tex.Load(int3(uv2, 0));
+    float4 texel3 = lut_tex.Load(int3(uv3, 0));
+  
+    float weight0 = 1.f - sorted[0];
+    float weight1 = sorted[0] - sorted[1];
+    float weight2 = sorted[1] - sorted[2];
+    float weight3 = sorted[2];
+  
+    float4 value0 = texel0 * weight0;
+    float4 value1 = texel1 * weight1;
+    float4 value2 = texel2 * weight2;
+    float4 value3 = texel3 * weight3;
 
-  // Red and green determine position within each 2D tile (X and Y axes)
-  float lut_r = lut_coord.r + 0.5f;
-  float lut_g = lut_coord.g + 0.5f;
+    return value0 + value1 + value2 + value3;
+  } else {
+    // Convert sRGB color to 3D LUT index space (0–15)
+    float3 lut_coord = srgb_color * 15.f;
 
-  // Compute 4×4 tile grid index for blue slices (tiles of size 16x16)
-  int2 tile_a = int2(b_index & 3, b_index >> 2);
-  int2 tile_b = int2(b_index_next & 3, b_index_next >> 2);
+    // Blue channel determines which 2D tile slice (Z axis)
+    float lut_b = lut_coord.b;
+    uint b_index = (uint)lut_b;
+    uint b_index_next = b_index + 1u;
+    float b_frac = lut_b - float(b_index);  // interpolation weight between slices
 
-  // Get UVs inside the 64×64 packed LUT texture
-  float2 uv_a = (float2(tile_a * 16) + float2(lut_r, lut_g)) / 64.f;
-  float2 uv_b = (float2(tile_b * 16) + float2(lut_r, lut_g)) / 64.f;
+    // Red and green determine position within each 2D tile (X and Y axes)
+    float lut_r = lut_coord.r + 0.5f;
+    float lut_g = lut_coord.g + 0.5f;
 
-  // Trilinear interpolation between adjacent blue slices
-  float4 lut_slice_low = lut_tex.SampleLevel(lut_sampler, uv_a, 0.f);
-  float4 lut_slice_high = lut_tex.SampleLevel(lut_sampler, uv_b, 0.f);
-  float4 lut_sample = lerp(lut_slice_low, lut_slice_high, b_frac);
+    // Compute 4×4 tile grid index for blue slices (tiles of size 16x16)
+    int2 tile_a = int2(b_index & 3, b_index >> 2);
+    int2 tile_b = int2(b_index_next & 3, b_index_next >> 2);
 
-  return lut_sample;
+    // Get UVs inside the 64×64 packed LUT texture
+    float2 uv_a = (float2(tile_a * 16) + float2(lut_r, lut_g)) / 64.f;
+    float2 uv_b = (float2(tile_b * 16) + float2(lut_r, lut_g)) / 64.f;
+
+    // Trilinear interpolation between adjacent blue slices
+    float4 lut_slice_low = lut_tex.SampleLevel(lut_sampler, uv_a, 0.f);
+    float4 lut_slice_high = lut_tex.SampleLevel(lut_sampler, uv_b, 0.f);
+    float4 lut_sample = lerp(lut_slice_low, lut_slice_high, b_frac);
+
+    return lut_sample;
+  }
 }
 
 float4 SampleLUTSRGBInSRGBOut(Texture2D<float4> lut_texture, SamplerState lut_sampler, float3 srgb_input) {
@@ -113,6 +131,8 @@ float4 SampleLUTSRGBInSRGBOut(Texture2D<float4> lut_texture, SamplerState lut_sa
   lut_config.type_input = renodx::lut::config::type::SRGB;
   lut_config.type_output = renodx::lut::config::type::SRGB;
   lut_config.recolor = 0.f;
+  lut_config.gamut_compress = LUT_GAMUT_RESTORATION;
+  lut_config.max_channel = 0.f;
 
   float3 lutInputColor = srgb_input;
   float3 lutOutputColor = lut_sample.rgb;
@@ -137,6 +157,8 @@ float4 SampleLUTSRGBInLinearOut(Texture2D<float4> lut_texture, SamplerState lut_
   lut_config.type_input = renodx::lut::config::type::SRGB;
   lut_config.type_output = renodx::lut::config::type::LINEAR;
   lut_config.recolor = 0.f;
+  lut_config.gamut_compress = LUT_GAMUT_RESTORATION;
+  lut_config.max_channel = 0.f;
 
   float3 lutInputColor = srgb_input;
   float3 lutOutputColor = lut_sample.rgb;
@@ -167,127 +189,12 @@ float3 ScaleBloom(float3 color_scene, float3 tex_bloom, float bloom_strength) {
   return CUSTOM_BLOOM * bloom_color + color_scene;
 }
 
-float ComputeReinhardSmoothClampScale(float3 untonemapped, float rolloff_start = 0.5f, float output_max = 1.f, float channel_max = 100.f) {
+float ComputeReinhardSmoothClampScale(float3 untonemapped, float rolloff_start = 0.18f, float output_max = 1.f, float channel_max = 100.f) {
   float peak = renodx::math::Max(untonemapped.r, untonemapped.g, untonemapped.b);
   float mapped_peak = renodx::tonemap::ReinhardPiecewiseExtended(peak, channel_max, output_max, rolloff_start);
-  float scale = renodx::math::DivideSafe(mapped_peak, peak, 0.f);
+  float scale = renodx::math::DivideSafe(mapped_peak, peak, 1.f);
 
   return scale;
-}
-
-float InverseToneMapHitman(float y) {
-  // Coefficients derived from inverse of Hitman 2's tonemap curve
-  const float numerator1 = -(5.f / 6.f) * (y - (1.0f / 30.f));
-  const float sqrt_term = (1.f / 180.f) * sqrt(19260.f * y * y + 1524.f * y + 25.f);
-  const float denominator = y - (14.f / 15.f);
-
-  // Use the positive root for physically plausible inverse
-  float x = (numerator1 / denominator) - (sqrt_term / denominator);
-  return x;
-}
-
-float ToneMapHitman(float x) {
-  float A = 0.6f;
-  float B = 0.1f;
-  float C = 1.f;
-  float D = 0.004f;
-  float E = 0.06f;
-  float F = D / E;
-
-  float scaled = x * A;
-  float numerator = (scaled + B) * x + D;
-  float denominator = (scaled + C) * x + E;
-  float result = numerator / denominator;
-  result -= F;
-
-  // f(x) = (0.6x^2 + 0.1x + 0.004) / (0.6x^2 + x + 0.06) - 0.004/0.06
-
-  return max(0, result);
-}
-
-float3 ToneMapHitman(float3 x, bool by_luminance = false) {
-  x *= RENODX_TONE_MAP_EXPOSURE;
-
-  float3 result;
-  if (!by_luminance) {
-    result = float3(
-        ToneMapHitman(x.r),
-        ToneMapHitman(x.g),
-        ToneMapHitman(x.b));
-  } else {
-    float y_in = renodx::color::y::from::BT709(x);
-    float y_out = ToneMapHitman(y_in);
-    result = renodx::color::correct::Luminance(x, y_in, y_out);
-  }
-
-  return result;
-}
-
-float InverseReinhard(float y) {
-  return y / (1.0f - y);
-}
-
-float3 Reinhard(float3 x, bool by_luminance = false) {
-  x *= RENODX_TONE_MAP_EXPOSURE;
-
-  float3 result = x;
-  if (!by_luminance) {
-    result = renodx::tonemap::Reinhard(x);
-  } else {
-    float y_in = renodx::color::y::from::BT709(x);
-    float y_out = renodx::tonemap::Reinhard(y_in);
-    result = renodx::color::correct::Luminance(x, y_in, y_out);
-  }
-
-  return result;
-}
-
-float3 ApplyCustomHitmanToneMap(float3 untonemapped) {
-  // tonemap by luminance
-  float3 lum_tm = ToneMapHitman(untonemapped, true);
-  float3 ch_tm = ToneMapHitman(untonemapped);
-  float3 untonemapped_midgray_corrected = untonemapped * (0.18f / InverseToneMapHitman(0.18f));
-
-  // create blended hdr version
-  float y = renodx::color::y::from::BT709(lum_tm);
-  // lum_tm = lerp(lum_tm, ch_tm, saturate(y / 0.5f));
-  float3 blended_tonemap = lerp(lum_tm, untonemapped_midgray_corrected, saturate(y));
-
-  // take channel chrominance and untonemapped hue
-  blended_tonemap = HueAndChrominanceOKLab(
-      blended_tonemap,
-      untonemapped,                           // hue reference color
-      ch_tm,                                  // chrominance reference color
-      1.f,                                    // hue correct strength
-      1.f,                                    // chrominance correct strength
-      RENODX_PER_CHANNEL_BLOWOUT_RESTORATION  // clamp chrominance loss
-  );
-
-  return blended_tonemap;
-}
-
-float3 ApplyCustomSimpleReinhardToneMap(float3 untonemapped) {
-  // tonemap by luminance
-  float3 lum_tm = Reinhard(untonemapped, true);
-  float3 ch_tm = Reinhard(untonemapped);
-  float3 untonemapped_midgray_corrected = untonemapped * (0.18f / InverseReinhard(0.18f));
-
-  // create blended hdr version
-  float y = renodx::color::y::from::BT709(lum_tm);
-  // lum_tm = lerp(lum_tm, ch_tm, saturate(y / 0.5f));
-  float3 blended_tonemap = lerp(lum_tm, untonemapped_midgray_corrected, saturate(y));
-
-  // take channel chrominance and untonemapped hue
-  blended_tonemap = HueAndChrominanceOKLab(
-      blended_tonemap,
-      untonemapped,                           // hue reference color
-      ch_tm,                                  // chrominance reference color
-      1.f,                                    // hue correct strength
-      1.f,                                    // chrominance correct strength
-      RENODX_PER_CHANNEL_BLOWOUT_RESTORATION  // clamp chrominance loss
-  );
-
-  return blended_tonemap;
 }
 
 renodx::lut::Config CreateLUTConfig(SamplerState lut_sampler) {
@@ -361,7 +268,7 @@ float Highlights(float x, float highlights, float mid_gray) {
 
   if (highlights > 1.f) {
     // value = max(x, lerp(x, mid_gray * pow(x / mid_gray, highlights), x));
-    return max(x, lerp(x, mid_gray * pow(x / mid_gray, highlights), saturate(x)));
+    return max(x, lerp(x, mid_gray * pow(x / mid_gray, highlights), min(10.f, x)));
   } else {  // highlights < 1.f
     x /= mid_gray;
     return lerp(x, pow(x, highlights), step(1.f, x)) * mid_gray;
@@ -454,30 +361,30 @@ float3 ApplySaturationBlowoutHueCorrectionHighlightSaturation(float3 tonemapped,
   return color;
 }
 
-float3 GamutCompressToBT2020BT2020InBT2020Out(float3 color_bt2020) {
-  // clamp to AP1
-  color_bt2020 = renodx::color::bt2020::from::AP1(
-      max(0, renodx::color::ap1::from::BT2020(color_bt2020)));
-
-  // compress to BT.2020 in gamma space
-  float3 gamma_color = renodx::color::gamma::EncodeSafe(color_bt2020);
-  float grayscale = renodx::color::y::from::BT2020(gamma_color.rgb);
-  float compression_scale = renodx::color::correct::ComputeGamutCompressionScale(gamma_color.rgb, grayscale);
-  gamma_color = renodx::color::correct::GamutCompress(gamma_color, grayscale, compression_scale);
-
-  // back to BT.709 linear
-  color_bt2020 = renodx::color::gamma::DecodeSafe(gamma_color);
-
-  return color_bt2020;
-}
-
-float3 ApplyHermiteSplineByMaxChannel(float3 input, float peak_white, float white_clip) {
+float3 ApplyHermiteSplineByMaxChannel(float3 input, float peak_white, float white_clip = 100.f) {
   float max_channel = renodx::math::Max(input.r, input.g, input.b);
 
   float mapped_peak = exp2(renodx::tonemap::HermiteSplineRolloff(log2(max_channel), log2(peak_white), log2(white_clip)));
-  float scale = renodx::math::DivideSafe(mapped_peak, max_channel, 0.f);
+  float scale = renodx::math::DivideSafe(mapped_peak, max_channel, 1.f);
   float3 tonemapped = input * scale;
   return tonemapped;
+}
+
+float3 GamutCompress(float3 color_bt709, float3x3 color_space_matrix = renodx::color::BT709_TO_XYZ_MAT) {
+  float grayscale = dot(color_bt709, color_space_matrix[1].rgb);
+
+  const float MID_GRAY_LINEAR = 1 / (pow(10, 0.75));                          // ~0.18f
+  const float MID_GRAY_PERCENT = 0.5f;                                        // 50%
+  const float MID_GRAY_GAMMA = log(MID_GRAY_LINEAR) / log(MID_GRAY_PERCENT);  // ~2.49f
+  float encode_gamma = MID_GRAY_GAMMA;
+
+  float3 encoded = renodx::color::gamma::EncodeSafe(color_bt709, encode_gamma);
+  float encoded_gray = renodx::color::gamma::Encode(grayscale, encode_gamma);
+
+  float3 compressed = renodx::color::correct::GamutCompress(encoded, encoded_gray);
+  float3 color_bt709_compressed = renodx::color::gamma::DecodeSafe(compressed, encode_gamma);
+
+  return color_bt709_compressed;
 }
 
 float3 ApplyDisplayMap(float3 color_input, float peak_ratio) {
@@ -508,8 +415,7 @@ float3 ApplyDisplayMap(float3 color_input, float peak_ratio) {
     }
 
     float3 color_input_bt2020 = renodx::color::bt2020::from::BT709(color_input);
-    color_input_bt2020 = GamutCompressToBT2020BT2020InBT2020Out(color_input_bt2020);
-    float3 display_mapped = ApplyHermiteSplineByMaxChannel(color_input_bt2020, peak_ratio, 100.f);
+    float3 display_mapped = ApplyHermiteSplineByMaxChannel(max(0, color_input_bt2020), peak_ratio, 60.f);
     display_mapped = renodx::color::bt709::from::BT2020(display_mapped);
 
     color_output = display_mapped;
@@ -553,6 +459,10 @@ float3 ApplyFade(float3 color_input, float fade) {
 }
 
 float3 FinalizeOutput(float3 color_input) {
+  if (COMPRESS_TO_BT709 != 0.f) {
+    color_input = GamutCompress(color_input);
+  }
+
   color_input = renodx::color::correct::GammaSafe(color_input);
   color_input *= RENODX_DIFFUSE_WHITE_NITS / RENODX_GRAPHICS_WHITE_NITS;
   color_input = renodx::color::correct::GammaSafe(color_input, true);
@@ -561,6 +471,9 @@ float3 FinalizeOutput(float3 color_input) {
 }
 
 float3 ApplySDRLUTInHDR(float3 color_hdr, Texture3D<float4> lut_texture, SamplerState lut_sampler, uint lut_type) {
+  if (LUT_GAMUT_RESTORATION == 0.f) {
+    color_hdr = GamutCompress(color_hdr);
+  }
   const float scale = ComputeReinhardSmoothClampScale(color_hdr);
   float3 color_sdr = color_hdr * scale;
 
@@ -612,13 +525,9 @@ float3 GammaCorrectHuePreserving(float3 incorrect_color) {
   float3 lum = GammaCorrectByLuminance(incorrect_color);
 
   // use chrominance from channel gamma correction and apply hue shifting from per channel tonemap
-  float3 result = renodx::color::correct::ChrominanceOKLab(lum, ch, 1.f, 1.f);
+  float3 result = renodx::color::correct::Chrominance(lum, ch, 1.f, 1.f, 0);
 
-  // compress to BT.2020
   result = renodx::color::bt709::clamp::AP1(result);
-  float3 result_bt2020 = renodx::color::bt2020::from::BT709(result);
-  result_bt2020 = GamutCompressToBT2020BT2020InBT2020Out(result_bt2020);
-  result = renodx::color::bt709::from::BT2020(result_bt2020);
 
   return result;
 }
@@ -629,7 +538,7 @@ float3 ApplyGammaCorrection(float3 incorrect_color) {
     corrected_color = renodx::color::correct::GammaSafe(incorrect_color);
   } else if (RENODX_GAMMA_CORRECTION == 2.f) {
     corrected_color = renodx::color::correct::GammaSafe(incorrect_color);
-    corrected_color = renodx::color::correct::Hue(corrected_color, incorrect_color, 1.f);
+    corrected_color = renodx::color::correct::Hue(corrected_color, incorrect_color, 1.f, 0);
   } else if (RENODX_GAMMA_CORRECTION == 3.f) {
     corrected_color = GammaCorrectHuePreserving(incorrect_color);
   } else {
