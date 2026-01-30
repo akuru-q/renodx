@@ -230,7 +230,8 @@ void main(
     r0.w = g_tSceneDepth.SampleLevel(samplePoint_s, r2.xz, 0).x;
     r0.w = g_vP2V.x + r0.w;
     r0.w = g_vP2V.y / r0.w;
-    r1.w = (int)g_vDramaticHdrLutInfo0[0].w & 2;
+    // r1.w = (int)g_vDramaticHdrLutInfo0[0].w & 2;
+    r1.w = (asuint(g_vDramaticHdrLutInfo0[0].w) & 2);
     r3.xy = r2.xz * float2(2,-2) + float2(-1,1);
     r3.xy = g_vP2V.zw * r3.xy;
     r3.xy = r3.xy * -r0.ww;
