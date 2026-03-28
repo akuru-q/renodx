@@ -37,6 +37,12 @@ add_executable(embed_file src/embed_file.cpp)
 # Helper executable that analyzes HLSL #include dependencies and outputs .d files
 add_executable(analyze_hlsl_deps src/analyze_hlsl_deps.cpp)
 add_executable(decomp ./src/decompiler/cli.cpp)
+add_executable(mcp_bridge src/apps/mcp_bridge/main.cpp)
+
+target_include_directories(mcp_bridge SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/json/include)
+target_include_directories(mcp_bridge SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/reshade)
+target_compile_definitions(mcp_bridge PRIVATE NOMINMAX)
+set_target_properties(mcp_bridge PROPERTIES OUTPUT_NAME "renodx-mcp-bridge")
 
 # DEPRECATED: inspect_hlsl_imports is no longer used - dependencies are tracked at build time via DEPFILE
 # Keeping for reference during transition
@@ -470,6 +476,35 @@ function(build_shader_target ADDON ADDON_PATH)
     endif()
   endforeach()
 
+  file(GLOB_RECURSE SHADER_GLSL_FILES CONFIGURE_DEPENDS ${ADDON_PATH}/*.glsl)
+  foreach(FILE ${SHADER_GLSL_FILES})
+    cmake_path(GET FILE FILENAME FILENAME)
+    cmake_path(GET FILE PARENT_PATH TARGET_PATH)
+    cmake_path(GET TARGET_PATH FILENAME FOLDER_NAME)
+    # If the folder name starts with a dot, skip
+    if(FOLDER_NAME MATCHES "^\\.")
+      continue()
+    endif()
+
+    string(REGEX MATCH "(.*)\\.(frag|vert|comp)\\.glsl$" _ ${FILENAME})
+    set(SHADER_NAME ${CMAKE_MATCH_1})
+    set(SHADER_TARGET ${CMAKE_MATCH_2})
+    if(SHADER_NAME)
+      string(REGEX MATCH "(0x[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])$" _ ${SHADER_NAME})
+      set(SHADER_HASH ${CMAKE_MATCH_1})
+    endif()
+
+    if(SHADER_TARGET AND SHADER_HASH)
+      configure_file(${FILE} ${EMBED_FOLDER}/${SHADER_HASH}.glsl COPYONLY)
+      list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_HASH}.glsl)
+    elseif(SHADER_TARGET AND SHADER_NAME)
+      configure_file(${FILE} ${EMBED_FOLDER}/${SHADER_NAME}.glsl COPYONLY)
+      list(APPEND SHADER_BINARIES ${EMBED_FOLDER}/${SHADER_NAME}.glsl)
+    endif()
+  endforeach()
+
+  list(REMOVE_DUPLICATES SHADER_BINARIES)
+
   set(SHADERS_H_OUTPUT "#pragma once\n")
   list(LENGTH SHADER_BINARIES SHADER_BINARIES_LENGTH)
   if(SHADER_BINARIES_LENGTH GREATER 0)
@@ -478,9 +513,15 @@ function(build_shader_target ADDON ADDON_PATH)
     set(ANY_VERSION_SHADERS)
     set(DX11_SHADERS)
     set(DX12_SHADERS)
+    set(SHADER_STEMS)
 
     foreach(FILE ${SHADER_BINARIES})
       cmake_path(GET FILE STEM LAST_ONLY FILENAME)
+      list(FIND SHADER_STEMS ${FILENAME} SHADER_STEM_INDEX)
+      if(NOT SHADER_STEM_INDEX EQUAL -1)
+        continue()
+      endif()
+      list(APPEND SHADER_STEMS ${FILENAME})
       add_custom_command(
         OUTPUT ${EMBED_FOLDER}/${FILENAME}.h
         COMMAND $<TARGET_FILE:embed_file> ${FILE} ${EMBED_FOLDER}/${FILENAME}.h
@@ -615,6 +656,7 @@ foreach(FILE ${ADDON_FILES})
   add_dependencies(${ADDON} detours)
   target_link_libraries(${ADDON} PRIVATE detours)
   target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/Detours/include)
+  target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/json/include)
   target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/frozen/include)
   target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/gtl/include)
   target_include_directories(${ADDON} SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/external/Streamline/include)
