@@ -1,3 +1,5 @@
+#include "../common.hlsl"
+
 cbuffer CB0 : register(b0)
 {
     float4 cb0[69];
@@ -30,6 +32,9 @@ struct PS_OUTPUT
     float4 SV_Target : SV_Target;
 };
 
+// 3Dmigoto declarations
+#define cmp -
+
 PS_OUTPUT main(PS_INPUT input)
 {
     PS_OUTPUT output;
@@ -43,6 +48,8 @@ PS_OUTPUT main(PS_INPUT input)
     r0.x = (int)r0.y | (int)r0.x;
     r0.x = (int)r0.z | (int)r0.x;
     r0.x = (int)r0.w | (int)r0.x;
+
+    float3 untonemapped = 0.f;
 
     // if (outside)
     if (r0.x == 0) {
@@ -100,7 +107,11 @@ PS_OUTPUT main(PS_INPUT input)
         sum = mad(c_right, r0_yzw, sum);
         sum = mad(c_down, r0_yzw, sum);
         sum = c_center + sum;
-        float3 filtered = saturate(r6_next * sum);
+        //float3 filtered = saturate(r6_next * sum);
+        float3 filtered = (r6_next * sum);
+        [branch]
+        if (RENODX_TONE_MAP_TYPE == 0.f) filtered = saturate(filtered);
+
         filtered *= cb1[135].z;
         
         float2 t1_coord = mad(cb0[58].zw, input.v0.xy, cb0[59].xy);
@@ -116,6 +127,8 @@ PS_OUTPUT main(PS_INPUT input)
         float3 combined = t1_col * t2_col;
         combined = mad(filtered, cb0[60].xyz, combined);
         combined *= input.v1.x;
+
+        untonemapped = combined;
         
         float2 r1_xy_2 = input.v1.yz * cb0[62].x;
         float r1_x = dot(r1_xy_2, r1_xy_2) + 1.0f;
@@ -132,6 +145,12 @@ PS_OUTPUT main(PS_INPUT input)
         float dither_offset = mad(randVal, dither_amount, mad(dither_amount, -0.5f, 1.0f));
         
         float3 adjusted = mad(combined, dither_offset, float3(0.002668f, 0.002668f, 0.002668f));
+
+        if (RENODX_TONE_MAP_TYPE == 3.f) {
+          adjusted = lerp(adjusted, ToneMapMaxCLL(adjusted, CUSTOM_TONEMAP_START, 1), saturate(renodx::color::y::from::BT709(adjusted)));
+        }
+
+        float3 lut_input_copy = adjusted;
         
         float3 lut_input = log2(adjusted);
         lut_input = saturate(mad(lut_input, 0.071429f, 0.610727f));
@@ -140,6 +159,17 @@ PS_OUTPUT main(PS_INPUT input)
         
         float3 scaled = lut_result * 1.05f;
         o0.w = saturate(dot(scaled, float3(0.299f, 0.587f, 0.114f)));
+
+        if (RENODX_TONE_MAP_TYPE == 3.f) {
+          float3 lut_output = renodx::color::srgb::DecodeSafe(scaled);
+          float3 lut_black = renodx::color::srgb::DecodeSafe(OutputLutSample((0.f).xxx, t3, s2));
+          float3 lut_mid_gray = renodx::color::srgb::DecodeSafe(OutputLutSample((0.18f).xxx, t3, s2));
+
+          lut_result = ScaleLutSamples(lut_input_copy, lut_output, lut_black, lut_mid_gray);
+
+          lut_result = renodx::color::srgb::EncodeSafe(lut_result);
+        }
+
         float dither_final = mad(randVal, 0.00390625f, -0.001953125f);
         float3 final_color = mad(lut_result, 1.05f, dither_final);
         
@@ -175,7 +205,26 @@ PS_OUTPUT main(PS_INPUT input)
     {
         o0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
-    
+
+    o0.rgb = renodx::color::srgb::DecodeSafe(o0.rgb);
+
+    if (RENODX_TONE_MAP_TYPE == 3.f) {
+        o0.rgb = renodx::tonemap::UpgradeToneMap(
+            untonemapped,
+            ToneMapMaxCLL(untonemapped, CUSTOM_TONEMAP_START, 1),
+            o0.rgb,
+            1.f
+            );
+        
+        o0.rgb = renodx::color::bt2020::from::BT709(o0.rgb);
+        o0.rgb = HDRBoost(o0.rgb, CUSTOM_HDR_BOOST_POWER);
+        o0.rgb = renodx::color::bt709::from::BT2020(o0.rgb);
+
+        o0.rgb = renodx::draw::ToneMapPass(o0.rgb);
+    }
+
+    o0.rgb = renodx::draw::RenderIntermediatePass(o0.rgb);
+
     output.SV_Target = o0;
     return output;
 }
