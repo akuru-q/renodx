@@ -33,6 +33,8 @@
 #define CUSTOM_LUT_STRENGTH                  shader_injection.custom_lut_strength
 #define CUSTOM_LUT_SCALING                   shader_injection.custom_lut_scaling
 #define CUSTOM_LUT_TETRAHEDRAL               shader_injection.custom_lut_tetrahedral
+#define CUSTOM_TONEMAP_START                 shader_injection.custom_tonemap_start
+#define CUSTOM_HDR_BOOST_POWER               shader_injection.custom_hdr_boost_power
 
 #define RENODX_RENO_DRT_TONE_MAP_METHOD               renodx::tonemap::renodrt::config::tone_map_method::HERMITE_SPLINE
 #define RENODX_RENO_DRT_NEUTRAL_SDR_TONE_MAP_METHOD   renodx::tonemap::renodrt::config::tone_map_method::HERMITE_SPLINE
@@ -72,6 +74,8 @@ struct ShaderInjectData {
   float custom_lut_scaling;
   float custom_lut_strength;
   float custom_lut_tetrahedral;
+  float custom_tonemap_start;
+  float custom_hdr_boost_power;
 };
 
 #ifndef __cplusplus
