@@ -26,7 +26,7 @@ float4 main(
     linear float4 TEXCOORD_2: TEXCOORD2)
     : SV_Target {
   float4 SV_Target;
-  float4 _16 = t0.Sample(s0, float2(TEXCOORD.x, TEXCOORD.y)); // center sample
+  float4 _16 = t0.Sample(s0, float2(TEXCOORD.x, TEXCOORD.y));  // center sample
   float4 _25 = t0.Sample(s0, float2(TEXCOORD_1.x, TEXCOORD_1.y));
   float4 _37 = t0.Sample(s0, float2(TEXCOORD_1.z, TEXCOORD_1.w));
   float4 _49 = t0.Sample(s0, float2(TEXCOORD_2.x, TEXCOORD_2.y));

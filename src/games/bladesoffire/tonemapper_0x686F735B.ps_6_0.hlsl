@@ -104,8 +104,7 @@ float ExtendAboveShoulderLinearInput(
     float x,
     float shoulderStartLog10,
     float filmSlope,
-    float shoulderOutput
-) {
+    float shoulderOutput) {
   const float INV_LOG10_2 = 3.32192809489f;
   const float LN10 = 2.302585093f;
 
@@ -355,7 +354,7 @@ float4 main(
   // SV_Target.x = saturate(cb0_003x * sqrt(_695));
   // SV_Target.y = saturate(cb0_003x * sqrt(_696));
   // SV_Target.z = saturate(cb0_003x * sqrt(_697));
-  SV_Target.rgb = saturate(cb0_003x * sqrt(vanillaColor)); // vanilla output
+  SV_Target.rgb = saturate(cb0_003x * sqrt(vanillaColor));  // vanilla output
 
   SV_Target.w = (cb0_002x * _21.w);
 
