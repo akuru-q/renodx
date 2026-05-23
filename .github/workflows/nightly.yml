@@ -20,7 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           submodules: recursive
 
       - name: Set up sccache
@@ -94,7 +93,7 @@ jobs:
           echo "NOW=$NOW" >> $env:GITHUB_ENV
 
       - name: Create a Release
-        uses: "marvinpinto/action-automatic-releases@v1.2.1"
+        uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           automatic_release_tag: nightly-${{ env.NOW }}
