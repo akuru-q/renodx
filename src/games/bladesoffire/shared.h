@@ -1,38 +1,37 @@
 #ifndef SRC_BLADES_OF_FIRE_H_
 #define SRC_BLADES_OF_FIRE_H_
 
-// #define RENODX_PEAK_WHITE_NITS                 1000.f
-// #define RENODX_DIFFUSE_WHITE_NITS              renodx::color::bt2408::REFERENCE_WHITE
-// #define RENODX_GRAPHICS_WHITE_NITS             renodx::color::bt2408::GRAPHICS_WHITE
-// #define RENODX_COLOR_GRADE_STRENGTH            1.f
-// #define RENODX_TONE_MAP_TYPE                   TONE_MAP_TYPE_RENO_DRT
-// #define RENODX_TONE_MAP_EXPOSURE               1.f
-// #define RENODX_TONE_MAP_HIGHLIGHTS             1.f
-// #define RENODX_TONE_MAP_SHADOWS                1.f
-// #define RENODX_TONE_MAP_CONTRAST               1.f
-// #define RENODX_TONE_MAP_SATURATION             1.f
-// #define RENODX_TONE_MAP_HIGHLIGHT_SATURATION   1.f
-// #define RENODX_TONE_MAP_BLOWOUT                0
-// #define RENODX_TONE_MAP_FLARE                  0
-// #define RENODX_TONE_MAP_HUE_CORRECTION         1.f
-// #define RENODX_TONE_MAP_HUE_SHIFT              0
-// #define RENODX_TONE_MAP_WORKING_COLOR_SPACE    color::convert::COLOR_SPACE_BT709
-// #define RENODX_TONE_MAP_CLAMP_COLOR_SPACE      color::convert::COLOR_SPACE_NONE
-// #define RENODX_TONE_MAP_CLAMP_PEAK             color::convert::COLOR_SPACE_BT709
-// #define RENODX_TONE_MAP_HUE_PROCESSOR          HUE_PROCESSOR_OKLAB
-// #define RENODX_TONE_MAP_PER_CHANNEL            0
-// #define RENODX_GAMMA_CORRECTION                GAMMA_CORRECTION_GAMMA_2_2
-// #define RENODX_INTERMEDIATE_SCALING            (RENODX_DIFFUSE_WHITE_NITS / RENODX_GRAPHICS_WHITE_NITS)
-// #define RENODX_INTERMEDIATE_ENCODING           (RENODX_GAMMA_CORRECTION + 1.f)
-// #define RENODX_INTERMEDIATE_COLOR_SPACE        color::convert::COLOR_SPACE_BT709
-// #define RENODX_SWAP_CHAIN_DECODING             RENODX_INTERMEDIATE_ENCODING
-// #define RENODX_SWAP_CHAIN_DECODING_COLOR_SPACE RENODX_INTERMEDIATE_COLOR_SPACE
-// #define RENODX_SWAP_CHAIN_CUSTOM_COLOR_SPACE   COLOR_SPACE_CUSTOM_BT709D65
-// #define RENODX_SWAP_CHAIN_SCALING_NITS         RENODX_GRAPHICS_WHITE_NITS
-// #define RENODX_SWAP_CHAIN_CLAMP_NITS           RENODX_PEAK_WHITE_NITS
-// #define RENODX_SWAP_CHAIN_CLAMP_COLOR_SPACE    color::convert::COLOR_SPACE_UNKNOWN
-// #define RENODX_SWAP_CHAIN_ENCODING             ENCODING_SCRGB
-// #define RENODX_SWAP_CHAIN_ENCODING_COLOR_SPACE color::convert::COLOR_SPACE_BT709
+#define RENODX_TONE_MAP_TYPE                   shader_injection.tone_map_type
+#define RENODX_PEAK_WHITE_NITS                 shader_injection.peak_white_nits
+#define RENODX_DIFFUSE_WHITE_NITS              shader_injection.diffuse_white_nits
+#define RENODX_GRAPHICS_WHITE_NITS             shader_injection.graphics_white_nits
+#define RENODX_TONE_MAP_EXPOSURE               shader_injection.tone_map_exposure
+#define RENODX_TONE_MAP_HIGHLIGHTS             shader_injection.tone_map_highlights
+#define RENODX_TONE_MAP_SHADOWS                shader_injection.tone_map_shadows
+#define RENODX_TONE_MAP_CONTRAST               shader_injection.tone_map_contrast
+#define RENODX_TONE_MAP_SATURATION             shader_injection.tone_map_saturation
+#define RENODX_TONE_MAP_HIGHLIGHT_SATURATION   shader_injection.tone_map_highlight_saturation
+#define RENODX_TONE_MAP_BLOWOUT                shader_injection.tone_map_blowout
+#define RENODX_TONE_MAP_FLARE                  shader_injection.tone_map_flare
+#define RENODX_RENO_DRT_TONE_MAP_METHOD        renodx::tonemap::renodrt::config::tone_map_method::REINHARD
+#define RENODX_TONE_MAP_HUE_CORRECTION         shader_injection.tone_map_hue_correction
+#define RENODX_TONE_MAP_HUE_SHIFT              shader_injection.tone_map_hue_shift
+#define RENODX_TONE_MAP_WORKING_COLOR_SPACE    renodx::color::convert::COLOR_SPACE_BT2020
+#define RENODX_TONE_MAP_HUE_PROCESSOR          renodx::draw::HUE_PROCESSOR_ICTCP
+#define RENODX_TONE_MAP_PER_CHANNEL            shader_injection.tone_map_per_channel
+#define RENODX_GAMMA_CORRECTION                0.f // shader_injection.gamma_correction
+#define RENODX_TONE_MAP_HUE_SHIFT_METHOD       HUE_SHIFT_METHOD_SDR_MODIFIED
+#define RENODX_TONE_MAP_HUE_SHIFT_MODIFIER     0.f
+#define RENODX_SWAP_CHAIN_COMPRESS_COLOR_SPACE renodx::color::convert::COLOR_SPACE_BT2020
+#define CUSTOM_SHARPENING                      shader_injection.custom_sharpening
+
+#define RENODX_RENO_DRT_NEUTRAL_SDR_TONE_MAP_METHOD   renodx::tonemap::renodrt::config::tone_map_method::HERMITE_SPLINE
+#define RENODX_RENO_DRT_NEUTRAL_SDR_CLAMP_PEAK        -1.f
+#define RENODX_RENO_DRT_NEUTRAL_SDR_CLAMP_COLOR_SPACE -1.f
+#define RENODX_RENO_DRT_NEUTRAL_SDR_WHITE_CLIP        20.f
+
+#define RENODX_COLOR_GRADE_HIGHLIGHTS_VERSION 1
+#define RENODX_COLOR_GRADE_SHADOWS_VERSION    1
 
 // Must be 32bit aligned
 // Should be 4x32
@@ -51,9 +50,12 @@ struct ShaderInjectData {
   float tone_map_flare;
   float tone_map_hue_correction;
   float tone_map_hue_shift;
+  float tone_map_per_channel;
+  float gamma_correction;
   float color_grade_hue_correction;
   float color_grade_saturation_correction;
   float color_grade_blowout_restoration;
+  float custom_sharpening;
 };
 
 #ifndef __cplusplus
@@ -64,24 +66,6 @@ cbuffer shader_injection : register(b13) {
 #endif
   ShaderInjectData shader_injection : packoffset(c0);
 }
-
-#define RENODX_TONE_MAP_TYPE                      shader_injection.tone_map_type
-#define RENODX_PEAK_WHITE_NITS                    shader_injection.peak_white_nits
-#define RENODX_DIFFUSE_WHITE_NITS                 shader_injection.diffuse_white_nits
-#define RENODX_GRAPHICS_WHITE_NITS                shader_injection.graphics_white_nits
-#define RENODX_TONE_MAP_EXPOSURE                  shader_injection.tone_map_exposure
-#define RENODX_TONE_MAP_HIGHLIGHTS                shader_injection.tone_map_highlights
-#define RENODX_TONE_MAP_SHADOWS                   shader_injection.tone_map_shadows
-#define RENODX_TONE_MAP_CONTRAST                  shader_injection.tone_map_contrast
-#define RENODX_TONE_MAP_SATURATION                shader_injection.tone_map_saturation
-#define RENODX_TONE_MAP_HIGHLIGHT_SATURATION      shader_injection.tone_map_highlight_saturation
-#define RENODX_TONE_MAP_BLOWOUT                   shader_injection.tone_map_blowout
-#define RENODX_TONE_MAP_FLARE                     shader_injection.tone_map_flare
-#define RENODX_RENO_DRT_TONE_MAP_METHOD           renodx::tonemap::renodrt::config::tone_map_method::REINHARD
-#define RENODX_TONE_MAP_PASS_AUTOCORRECTION       1.f
-#define RENODX_PER_CHANNEL_HUE_CORRECTION         1.f
-#define RENODX_PER_CHANNEL_CHROMINANCE_CORRECTION 1.f
-#define RENODX_PER_CHANNEL_BLOWOUT_RESTORATION    0.5f
 
 #include "../../shaders/renodx.hlsl"
 

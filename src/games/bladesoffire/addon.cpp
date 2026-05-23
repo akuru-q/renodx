@@ -26,20 +26,57 @@ renodx::mods::shader::CustomShaders custom_shaders = {__ALL_CUSTOM_SHADERS};
 ShaderInjectData shader_injection;
 
 renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSettings({renodx::templates::settings::CreateDefaultSettings({
-                                                                                            {"ToneMapType", &shader_injection.tone_map_type},
-                                                                                            {"ToneMapPeakNits", &shader_injection.peak_white_nits},
-                                                                                            {"ToneMapGameNits", &shader_injection.diffuse_white_nits},
-                                                                                            {"ToneMapUINits", &shader_injection.graphics_white_nits},
-                                                                                            {"ColorGradeExposure", &shader_injection.tone_map_exposure},
-                                                                                            {"ColorGradeHighlights", &shader_injection.tone_map_highlights},
-                                                                                            {"ColorGradeShadows", &shader_injection.tone_map_shadows},
-                                                                                            {"ColorGradeContrast", &shader_injection.tone_map_contrast},
-                                                                                            {"ColorGradeSaturation", &shader_injection.tone_map_saturation},
-                                                                                            {"ColorGradeHighlightSaturation", &shader_injection.tone_map_highlight_saturation},
-                                                                                            {"ColorGradeBlowout", &shader_injection.tone_map_blowout},
-                                                                                            {"ColorGradeFlare", &shader_injection.tone_map_flare},
+                                                                                            {"ToneMapType", {.binding = &shader_injection.tone_map_type}},
+                                                                                            {"ToneMapPeakNits", {.binding = &shader_injection.peak_white_nits}},
+                                                                                            {"ToneMapGameNits", {.binding = &shader_injection.diffuse_white_nits}},
+                                                                                            {"ToneMapUINits", {.binding = &shader_injection.graphics_white_nits}},
+                                                                                            //{"ToneMapGammaCorrection", {.binding = &shader_injection.gamma_correction, .default_value = 0.f}},
+                                                                                            {"ToneMapHueCorrection", {.binding = &shader_injection.tone_map_hue_correction, .default_value = 90.f, .tooltip = "Emulates vanilla SDR hue shifts."}},
+                                                                                            {"ToneMapHueShift", {.binding = &shader_injection.tone_map_hue_shift, .default_value = 0.f, .label = "Chrominance Correction", .tooltip = "Emulates vanilla SDR chrominance/blowout."}},
+                                                                                            {"ToneMapScaling", {.binding = &shader_injection.tone_map_per_channel, .default_value = 1.f}},
+                                                                                            {"ColorGradeExposure", {.binding = &shader_injection.tone_map_exposure}},
+                                                                                            {"ColorGradeHighlights", {.binding = &shader_injection.tone_map_highlights}},
+                                                                                            {"ColorGradeShadows", {.binding = &shader_injection.tone_map_shadows}},
+                                                                                            {"ColorGradeContrast", {.binding = &shader_injection.tone_map_contrast}},
+                                                                                            {"ColorGradeSaturation", {.binding = &shader_injection.tone_map_saturation}},
+                                                                                            {"ColorGradeHighlightSaturation", {.binding = &shader_injection.tone_map_highlight_saturation}},
+                                                                                            {"ColorGradeBlowout", {.binding = &shader_injection.tone_map_blowout}},
+                                                                                            {"ColorGradeFlare", {.binding = &shader_injection.tone_map_flare}},
                                                                                         }),
                                                                                         {
+                                                                                            new renodx::utils::settings::Setting{
+                                                                                                .key = "CustomSharpening",
+                                                                                                .binding = &shader_injection.custom_sharpening,
+                                                                                                .default_value = 100.f,
+                                                                                                .label = "Sharpening",
+                                                                                                .section = "Effects",
+                                                                                                .tooltip = "Controls the amount of sharpening, 100 is the game's default.",
+                                                                                                .max = 100.f,
+                                                                                                .parse = [](float value) { return value * 0.01f; },
+                                                                                            },
+                                                                                            new renodx::utils::settings::Setting{
+                                                                                                .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+                                                                                                .label = "Reset All",
+                                                                                                .section = "Presets",
+                                                                                                .group = "button-line-1",
+                                                                                                .on_change = []() {
+                                                                                                  for (auto setting : settings) {
+                                                                                                    if (setting->key.empty()) continue;
+                                                                                                    if (!setting->can_reset) continue;
+                                                                                                    renodx::utils::settings::UpdateSetting(setting->key, setting->default_value);
+                                                                                                  }
+                                                                                                },
+                                                                                            },
+                                                                                            new renodx::utils::settings::Setting{
+                                                                                                .value_type = renodx::utils::settings::SettingValueType::BUTTON,
+                                                                                                .label = "RenoDX Discord",
+                                                                                                .section = "Links",
+                                                                                                .group = "button-line-1",
+                                                                                                .tint = 0x5865F2,
+                                                                                                .on_change = []() {
+                                                                                                  renodx::utils::platform::LaunchURL("https://discord.gg/Ce9b", "QHQrSV");
+                                                                                                },
+                                                                                            },
                                                                                             new renodx::utils::settings::Setting{
                                                                                                 .value_type = renodx::utils::settings::SettingValueType::BUTTON,
                                                                                                 .label = "HDR Den Discord",
@@ -91,7 +128,7 @@ renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSe
                                                                                             },
                                                                                             new renodx::utils::settings::Setting{
                                                                                                 .value_type = renodx::utils::settings::SettingValueType::TEXT,
-                                                                                                .label = "Game mod by Ritsu, RenoDX Framework by ShortFuse.",
+                                                                                                .label = "Game mod by Ritsu & akuru, RenoDX Framework by ShortFuse.",
                                                                                                 .section = "About",
                                                                                             },
                                                                                             new renodx::utils::settings::Setting{
@@ -108,6 +145,9 @@ void OnPresetOff() {
       {"ToneMapGameNits", 203.f},
       {"ToneMapUINits", 203.f},
       {"ToneMapGammaCorrection", 0.f},
+      {"ToneMapHueCorrection", 0.f},
+      {"ToneMapHueShift", 0.f},
+      {"ToneMapScaling", 0.f},
       {"ColorGradeExposure", 1.f},
       {"ColorGradeHighlights", 50.f},
       {"ColorGradeShadows", 50.f},
@@ -116,6 +156,7 @@ void OnPresetOff() {
       {"ColorGradeHighlightSaturation", 50.f},
       {"ColorGradeBlowout", 0.f},
       {"ColorGradeFlare", 0.f},
+      {"CustomSharpening", 100.f},
   });
 }
 
@@ -133,10 +174,6 @@ void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize) {
   settings[2]->can_reset = true;
 
   settings[3]->default_value = fmin(renodx::utils::swapchain::ComputeReferenceWhite(settings[2]->default_value), 203.f);
-
-  // Contrast
-  settings[8]->default_value = 35.f;
-  settings[8]->can_reset = true;
 
   fired_on_init_swapchain = true;
 }

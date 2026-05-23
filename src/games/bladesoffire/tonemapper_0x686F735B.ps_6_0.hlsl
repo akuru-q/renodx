@@ -100,10 +100,32 @@ SamplerState s8 : register(s8);
 
 SamplerState s4 : register(s4);
 
+float ExtendAboveShoulderLinearInput(
+    float x,
+    float shoulderStartLog10,
+    float filmSlope,
+    float shoulderOutput
+) {
+  const float INV_LOG10_2 = 3.32192809489f;
+  const float LN10 = 2.302585093f;
+
+  float xShoulder = exp2(shoulderStartLog10 * INV_LOG10_2);
+
+  // derivative of y = filmSlope * log10(x) + bias
+  // dy/dx = filmSlope / (x * ln(10))
+  float slopeAtShoulder = filmSlope / max(xShoulder * LN10, 1e-6f);
+
+  return shoulderOutput + slopeAtShoulder * (x - xShoulder);
+}
+
 float4 main(
     noperspective float4 SV_Position: SV_Position,
-    linear float2 TEXCOORD: TEXCOORD) : SV_Target {
+    linear float2 TEXCOORD: TEXCOORD)
+    : SV_Target {
   float4 SV_Target;
+
+  float3 vanillaColor = 0.f;
+
   float _19 = cb0_000z * SV_Position.x;
   float _20 = cb0_000w * SV_Position.y;
   float4 _21 = t0.Sample(s0, float2(TEXCOORD.x, TEXCOORD.y));  // Game before exposure
@@ -121,15 +143,15 @@ float4 main(
   float3 ungradedAP1 = float3(_56, _57, _58);
 
   // NTSC1953 dot
-  // float _79 = dot(float3(_56, _57, _58), float3(0.29899999499320984f, 0.5870000123977661f, 0.11400000005960464f));
-  float _79 = renodx::color::y::from::AP1(float3(_56, _57, _58));
-  // Color correction stuff
-  // lerp is grayscale -> color
-  // cb0_007.rgb is saturation
-  // cb0_008.rgb is contrast
-  // cb0_009.rgb is shadows
-  // cb0_010.rgb is midtones
-  // cb0_011.rgb is black floor
+  float _79 = dot(float3(_56, _57, _58), float3(0.29899999499320984f, 0.5870000123977661f, 0.11400000005960464f));
+  // float _79 = renodx::color::y::from::AP1(float3(_56, _57, _58));
+  //  Color correction stuff
+  //  lerp is grayscale -> color
+  //  cb0_007.rgb is saturation
+  //  cb0_008.rgb is contrast
+  //  cb0_009.rgb is shadows
+  //  cb0_010.rgb is midtones
+  //  cb0_011.rgb is black floor
 
   float _122 = max(
       0.0f,
@@ -143,8 +165,8 @@ float4 main(
   float _123 = max(0.0f, ((exp2(log2(exp2(log2(max(0.0f, (lerp(_79, _57, cb0_007y))) * 5.55555534362793f) * cb0_008y) * 0.18000000715255737f) * cb0_009y) * cb0_010y) + cb0_011y));
   float _124 = max(0.0f, ((exp2(log2(exp2(log2(max(0.0f, (lerp(_79, _58, cb0_007z))) * 5.55555534362793f) * cb0_008z) * 0.18000000715255737f) * cb0_009z) * cb0_010z) + cb0_011z));
 
-  // float _125 = dot(float3(_122, _123, _124), float3(0.29899999499320984f, 0.5870000123977661f, 0.11400000005960464f));
-  float _125 = renodx::color::y::from::AP1(float3(_122, _123, _124));
+  float _125 = dot(float3(_122, _123, _124), float3(0.29899999499320984f, 0.5870000123977661f, 0.11400000005960464f));
+  // float _125 = renodx::color::y::from::AP1(float3(_122, _123, _124));
 
   float _146 = _122 - _125;
   float _147 = _123 - _125;
@@ -179,7 +201,6 @@ float4 main(
   float _381 = (_369 * _346) * _379;
   float _382 = (_369 * _348) * _379;
   float3 untonemappedAP1 = float3(_380, _381, _382);
-
   float _450;
   float _483;
   float _497;
@@ -263,7 +284,12 @@ float4 main(
       _554 = (-0.7447274923324585f - ((log2(_545 / (2.0f - _545)) * 0.3465735912322998f) * (_535 / cb0_028w)));
     }
     float _556 = (_534 / cb0_028w) - _554;
-    float _558 = (cb0_029y / cb0_028w) - _556;
+    float _558 = (cb0_029y / cb0_028w) - _556;  // shoulder start?
+
+    float toneInR = max(1e-10f, lerp(_524, _521, 0.9599999785f));
+    float toneInG = max(1e-10f, lerp(_524, _522, 0.9599999785f));
+    float toneInB = max(1e-10f, lerp(_524, _523, 0.9599999785f));
+
     // const float RRT_SAT_FACTOR = 0.96f;
     float _562 = log2(lerp(_524, _521, 0.9599999785423279f)) * 0.3010300099849701f;
     float _563 = log2(lerp(_524, _522, 0.9599999785423279f)) * 0.3010300099849701f;
@@ -291,40 +317,60 @@ float4 main(
     float _643 = select(_639, (1.0f - _636), _636);
     float _644 = select(_639, (1.0f - _637), _637);
     float _645 = select(_639, (1.0f - _638), _638);
+
+    float extR = ExtendAboveShoulderLinearInput(toneInR, _558, cb0_028w, cb0_029y);
+    float extG = ExtendAboveShoulderLinearInput(toneInG, _558, cb0_028w, cb0_029y);
+    float extB = ExtendAboveShoulderLinearInput(toneInB, _558, cb0_028w, cb0_029y);
+
     float _664 = (((_643 * _643) * (select((_562 > _558), (_595 - (_596 / (exp2(((_562 - _558) * 1.4426950216293335f) * _598) + 1.0f))), _568) - _621)) * (3.0f - (_643 * 2.0f))) + _621;
     float _665 = (((_644 * _644) * (select((_563 > _558), (_595 - (_596 / (exp2(((_563 - _558) * 1.4426950216293335f) * _598) + 1.0f))), _569) - _623)) * (3.0f - (_644 * 2.0f))) + _623;
     float _666 = (((_645 * _645) * (select((_564 > _558), (_595 - (_596 / (exp2(((_564 - _558) * 1.4426950216293335f) * _598) + 1.0f))), _570) - _625)) * (3.0f - (_645 * 2.0f))) + _625;
+
+    vanillaColor = float3(_664, _665, _666);
+
+    // extend above shoulder
+    _664 = select((_562 > _558), extR, _621);
+    _665 = select((_563 > _558), extG, _623);
+    _666 = select((_564 > _558), extB, _625);
+
     float _667 = dot(float3(_664, _665, _666), float3(0.2722287178039551f, 0.6740817427635193f, 0.053689517080783844f));
-    _695 = max(0.0f, (lerp(_667, _664, 0.9300000071525574f)));
-    _696 = max(0.0f, (lerp(_667, _665, 0.9300000071525574f)));
-    _697 = max(0.0f, (lerp(_667, _666, 0.9300000071525574f)));
+    //_695 = max(0.0f, (lerp(_667, _664, 0.9300000071525574f)));
+    //_696 = max(0.0f, (lerp(_667, _665, 0.9300000071525574f)));
+    //_697 = max(0.0f, (lerp(_667, _666, 0.9300000071525574f)));
+    _695 = (lerp(_667, _664, 0.9300000071525574f));
+    _696 = (lerp(_667, _665, 0.9300000071525574f));
+    _697 = (lerp(_667, _666, 0.9300000071525574f));
     // End film stuff
     // They don't use bluecorrection
+
+    // apply same desat to vanilla color
+    _667 = dot(vanillaColor, float3(0.2722287178039551f, 0.6740817427635193f, 0.053689517080783844f));
+    vanillaColor = max(0, lerp(_667, vanillaColor, 0.93));
   } else {
     // Old tonemaper, Reinhard maybe idk
     _695 = (cb0_028z * (1.0f - exp2(-0.0f - _380)));
     _696 = (cb0_028z * (1.0f - exp2(-0.0f - _381)));
     _697 = (cb0_028z * (1.0f - exp2(-0.0f - _382)));
   }
-  SV_Target.x = saturate(cb0_003x * sqrt(_695));
-  SV_Target.y = saturate(cb0_003x * sqrt(_696));
-  SV_Target.z = saturate(cb0_003x * sqrt(_697));
+  // SV_Target.x = saturate(cb0_003x * sqrt(_695));
+  // SV_Target.y = saturate(cb0_003x * sqrt(_696));
+  // SV_Target.z = saturate(cb0_003x * sqrt(_697));
+  SV_Target.rgb = saturate(cb0_003x * sqrt(vanillaColor)); // vanilla output
 
-  if (RENODX_TONE_MAP_TYPE) {
-    float3 output = float3(_695, _696, _697);
-
-    untonemappedAP1 = renodx::color::bt709::from::AP1(untonemappedAP1);
-
-    output = renodx::color::bt709::from::AP1(output);
-
-    renodx::draw::Config config = renodx::draw::BuildConfig();
-    config.peak_white_nits = 10000.f;
-    SV_Target.rgb = renodx::draw::ToneMapPass(untonemappedAP1.rgb, saturate(output.rgb), config);
-    SV_Target.rgb = renodx::color::ap1::from::BT709(SV_Target.rgb);
-
-    SV_Target.rgb = renodx::color::gamma::EncodeSafe(SV_Target.rgb, 2.0f);
-    SV_Target.rgb *= cb0_003x;
-  }
   SV_Target.w = (cb0_002x * _21.w);
+
+  if (RENODX_TONE_MAP_TYPE != 0.f) {
+    SV_Target.rgb = float3(_695, _696, _697);
+
+    SV_Target.rgb = renodx::draw::ToneMapPass(SV_Target.rgb);
+
+    // hue + chrominance correction
+    SV_Target.rgb = renodx::color::correct::Hue(SV_Target.rgb, vanillaColor, RENODX_TONE_MAP_HUE_CORRECTION);
+    SV_Target.rgb = renodx::color::correct::Chrominance(SV_Target.rgb, vanillaColor, RENODX_TONE_MAP_HUE_SHIFT, 0.f, RENODX_TONE_MAP_HUE_PROCESSOR);
+
+    SV_Target.rgb = renodx::color::bt2020::from::BT709(SV_Target.rgb);
+    SV_Target.rgb = renodx::color::pq::EncodeSafe(SV_Target.rgb, 1);
+  }
+
   return SV_Target;
 }

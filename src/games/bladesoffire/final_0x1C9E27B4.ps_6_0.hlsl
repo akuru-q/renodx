@@ -23,9 +23,10 @@ float4 main(
     noperspective float4 SV_Position: SV_Position,
     linear float2 TEXCOORD: TEXCOORD,
     linear float4 TEXCOORD_1: TEXCOORD1,
-    linear float4 TEXCOORD_2: TEXCOORD2) : SV_Target {
+    linear float4 TEXCOORD_2: TEXCOORD2)
+    : SV_Target {
   float4 SV_Target;
-  float4 _16 = t0.Sample(s0, float2(TEXCOORD.x, TEXCOORD.y));
+  float4 _16 = t0.Sample(s0, float2(TEXCOORD.x, TEXCOORD.y)); // center sample
   float4 _25 = t0.Sample(s0, float2(TEXCOORD_1.x, TEXCOORD_1.y));
   float4 _37 = t0.Sample(s0, float2(TEXCOORD_1.z, TEXCOORD_1.w));
   float4 _49 = t0.Sample(s0, float2(TEXCOORD_2.x, TEXCOORD_2.y));
@@ -34,20 +35,33 @@ float4 main(
   float _71 = ((((cb0_011z * _16.y) - (cb0_011x * _25.y)) - (cb0_011x * _37.y)) - (cb0_011y * _49.y)) - (cb0_011y * _61.y);
   float _72 = ((((cb0_011z * _16.z) - (cb0_011x * _25.z)) - (cb0_011x * _37.z)) - (cb0_011y * _49.z)) - (cb0_011y * _61.z);
   float _79 = saturate(abs(dot(float3(_16.x, _16.y, _16.z), float3(0.3333333432674408f, 0.3333333432674408f, 0.3333333432674408f)) - dot(float3(_70, _71, _72), float3(0.3333333432674408f, 0.3333333432674408f, 0.3333333432674408f))) * cb0_011w);
-  float _91 = ((_79 * (_16.x - _70)) + _70) * cb0_002x;
-  float _92 = ((_79 * (_16.y - _71)) + _71) * cb0_002x;
-  float _93 = ((_79 * (_16.z - _72)) + _72) * cb0_002x;
+  float _91 = ((_79 * (_16.x - _70)) + _70);  // * cb0_002x;
+  float _92 = ((_79 * (_16.y - _71)) + _71);  // * cb0_002x;
+  float _93 = ((_79 * (_16.z - _72)) + _72);  // * cb0_002x;
 
+  float3 center_scene = _16.rgb;
   float3 scene = float3(_91, _92, _93);
-  scene.rgb = renodx::color::gamma::DecodeSafe(scene.rgb, 2.f);
-  scene.rgb = renodx::tonemap::ExponentialRollOff(scene.rgb, 0.f, RENODX_PEAK_WHITE_NITS / RENODX_DIFFUSE_WHITE_NITS);
-  scene.rgb = renodx::color::correct::GammaSafe(scene.rgb);
+
+  if (RENODX_TONE_MAP_TYPE == 0.f) {
+    center_scene *= cb0_002x;
+    center_scene.rgb = renodx::color::gamma::DecodeSafe(center_scene.rgb, 2.f);
+
+    scene *= cb0_002x;
+    scene.rgb = renodx::color::gamma::DecodeSafe(scene.rgb, 2.f);
+  } else {
+    center_scene = renodx::color::pq::DecodeSafe(center_scene.rgb, 1);
+    center_scene.rgb = renodx::color::bt709::from::BT2020(center_scene.rgb);
+
+    scene = renodx::color::pq::DecodeSafe(scene.rgb, 1);
+    scene.rgb = renodx::color::bt709::from::BT2020(scene.rgb);
+  }
+
+  scene = lerp(center_scene, scene, CUSTOM_SHARPENING);  // sharpening amount
   scene.rgb = renodx::color::gamma::EncodeSafe(scene.rgb, 2.f);
 
   float4 _94 = t1.Sample(s1, float2(TEXCOORD.x, TEXCOORD.y));
   // 1 = diffuse white
   _94.rgb = renodx::color::gamma::DecodeSafe(_94.rgb, 2.f);
-  _94.rgb = renodx::color::correct::GammaSafe(_94.rgb);
   _94.rgb = _94.rgb * RENODX_GRAPHICS_WHITE_NITS / RENODX_DIFFUSE_WHITE_NITS;
   _94.rgb = renodx::color::gamma::EncodeSafe(_94.rgb, 2.f);
 
