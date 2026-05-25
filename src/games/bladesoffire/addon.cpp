@@ -26,7 +26,7 @@ renodx::mods::shader::CustomShaders custom_shaders = {__ALL_CUSTOM_SHADERS};
 ShaderInjectData shader_injection;
 
 renodx::utils::settings::Settings settings = renodx::templates::settings::JoinSettings({renodx::templates::settings::CreateDefaultSettings({
-                                                                                            {"ToneMapType", {.binding = &shader_injection.tone_map_type}},
+                                                                                            {"ToneMapType", {.binding = &shader_injection.tone_map_type, .labels = {"Vanilla HDR", "RenoDRT"}}},
                                                                                             {"ToneMapPeakNits", {.binding = &shader_injection.peak_white_nits}},
                                                                                             {"ToneMapGameNits", {.binding = &shader_injection.diffuse_white_nits}},
                                                                                             {"ToneMapUINits", {.binding = &shader_injection.graphics_white_nits}},
