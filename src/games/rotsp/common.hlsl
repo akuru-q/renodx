@@ -1,4 +1,3 @@
-#include "./psychov_17.hlsl"
 #include "./shared.h"
 
 // typical AgX tonemap params, don't seem to change.
