@@ -1,0 +1,74 @@
+#ifndef SRC_BLADES_OF_FIRE_H_
+#define SRC_BLADES_OF_FIRE_H_
+
+#define RENODX_TONE_MAP_TYPE                   shader_injection.tone_map_type
+#define RENODX_PEAK_WHITE_NITS                 shader_injection.peak_white_nits
+#define RENODX_DIFFUSE_WHITE_NITS              shader_injection.diffuse_white_nits
+#define RENODX_GRAPHICS_WHITE_NITS             shader_injection.graphics_white_nits
+#define RENODX_TONE_MAP_EXPOSURE               shader_injection.tone_map_exposure
+#define RENODX_TONE_MAP_HIGHLIGHTS             shader_injection.tone_map_highlights
+#define RENODX_TONE_MAP_SHADOWS                shader_injection.tone_map_shadows
+#define RENODX_TONE_MAP_CONTRAST               shader_injection.tone_map_contrast
+#define RENODX_TONE_MAP_SATURATION             shader_injection.tone_map_saturation
+#define RENODX_TONE_MAP_HIGHLIGHT_SATURATION   shader_injection.tone_map_highlight_saturation
+#define RENODX_TONE_MAP_BLOWOUT                shader_injection.tone_map_blowout
+#define RENODX_TONE_MAP_FLARE                  shader_injection.tone_map_flare
+#define RENODX_RENO_DRT_TONE_MAP_METHOD        renodx::tonemap::renodrt::config::tone_map_method::REINHARD
+#define RENODX_TONE_MAP_HUE_CORRECTION         shader_injection.tone_map_hue_correction
+#define RENODX_TONE_MAP_HUE_SHIFT              shader_injection.tone_map_hue_shift
+#define RENODX_TONE_MAP_WORKING_COLOR_SPACE    renodx::color::convert::COLOR_SPACE_BT2020
+#define RENODX_TONE_MAP_HUE_PROCESSOR          renodx::draw::HUE_PROCESSOR_ICTCP
+#define RENODX_TONE_MAP_PER_CHANNEL            shader_injection.tone_map_per_channel
+#define RENODX_GAMMA_CORRECTION                0.f // shader_injection.gamma_correction
+#define RENODX_TONE_MAP_HUE_SHIFT_METHOD       HUE_SHIFT_METHOD_SDR_MODIFIED
+#define RENODX_TONE_MAP_HUE_SHIFT_MODIFIER     0.f
+#define RENODX_SWAP_CHAIN_COMPRESS_COLOR_SPACE renodx::color::convert::COLOR_SPACE_BT2020
+#define CUSTOM_SHARPENING                      shader_injection.custom_sharpening
+
+#define RENODX_RENO_DRT_NEUTRAL_SDR_TONE_MAP_METHOD   renodx::tonemap::renodrt::config::tone_map_method::HERMITE_SPLINE
+#define RENODX_RENO_DRT_NEUTRAL_SDR_CLAMP_PEAK        -1.f
+#define RENODX_RENO_DRT_NEUTRAL_SDR_CLAMP_COLOR_SPACE -1.f
+#define RENODX_RENO_DRT_NEUTRAL_SDR_WHITE_CLIP        20.f
+
+#define RENODX_COLOR_GRADE_HIGHLIGHTS_VERSION 1
+#define RENODX_COLOR_GRADE_SHADOWS_VERSION    1
+
+// Must be 32bit aligned
+// Should be 4x32
+struct ShaderInjectData {
+  float peak_white_nits;
+  float diffuse_white_nits;
+  float graphics_white_nits;
+  float tone_map_type;
+  float tone_map_exposure;
+  float tone_map_highlights;
+  float tone_map_shadows;
+  float tone_map_contrast;
+  float tone_map_saturation;
+  float tone_map_highlight_saturation;
+  float tone_map_blowout;
+  float tone_map_flare;
+  float tone_map_hue_correction;
+  float tone_map_hue_shift;
+  float tone_map_per_channel;
+  float gamma_correction;
+  float color_grade_hue_correction;
+  float color_grade_saturation_correction;
+  float color_grade_blowout_restoration;
+  float custom_sharpening;
+};
+
+#ifndef __cplusplus
+#if ((__SHADER_TARGET_MAJOR == 5 && __SHADER_TARGET_MINOR >= 1) || __SHADER_TARGET_MAJOR >= 6)
+cbuffer shader_injection : register(b13, space50) {
+#elif (__SHADER_TARGET_MAJOR < 5) || ((__SHADER_TARGET_MAJOR == 5) && (__SHADER_TARGET_MINOR < 1))
+cbuffer shader_injection : register(b13) {
+#endif
+  ShaderInjectData shader_injection : packoffset(c0);
+}
+
+#include "../../shaders/renodx.hlsl"
+
+#endif
+
+#endif  // SRC_BLADES_OF_FIRE_H_
