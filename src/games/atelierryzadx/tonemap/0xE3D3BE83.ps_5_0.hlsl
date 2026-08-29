@@ -75,9 +75,12 @@ void main(
   r1.xyz = r2.xyz * r1.xxx;
   o0.w = r2.w;
 
-  PreEffectsBlend(r0.xyz);
+  PreEffectsBlend(r0.xyz, r1.xyz);
 
   r0.xyz = r1.xyz * r0.www + r0.xyz;
+
+  PostEffectsBlend(r0.xyz);
+
   r0.xyz = max(float3(0,0,0), r0.xyz);
   r1.xyz = smplStar_Tex.Sample(smplStar_s, v1.xy).xyz;
   r0.xyz = r1.xyz * fStarWeight + r0.xyz;

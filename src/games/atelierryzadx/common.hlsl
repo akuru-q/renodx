@@ -5,6 +5,9 @@ static float g_gamma;
 static float3 g_pre_sat;
 static float3 g_post_tonemap;
 
+static float4 g_fx_color;
+static float3 g_scene_color_pre_effects;
+
 static float3 g_posttmfx_hdr;
 static float3 g_posttmfx_sdr; 
 static float g_posttmfx_sample_count = 0.f;
@@ -20,9 +23,19 @@ float3 VanillaHableTonemap(float3 color, float w = 1.f) {
   return color * w;
 }
 
+float ComputeReinhardSmoothClampScale(float3 untonemapped, float rolloff_start = 0.375f, float output_max = 1.f, float white_clip = 100.f) {
+  float peak = renodx::math::Max(untonemapped.r, untonemapped.g, untonemapped.b);
+  float mapped_peak = renodx::tonemap::ReinhardPiecewiseExtended(peak, white_clip, output_max, rolloff_start);
+  float scale = renodx::math::DivideSafe(mapped_peak, peak, 1.f);
+
+  return scale;
+}
+
 void PostEffectsSample(inout float4 color, float2 hdrParams, float gamma) {
+  g_fx_color = color;
+
   [branch]
-  if (RENODX_TONE_MAP_TYPE != 0.f) {
+  if (RENODX_TONE_MAP_TYPE != 0.f && CUSTOM_FX_METHOD == 0.f) {
 
     float3 chr = renodx::tonemap::ExponentialRollOff(color.rgb, 0.f, 1.f);
     float3 col = renodx::color::correct::Chrominance(chr, color.rgb, 0.25f);
@@ -31,11 +44,19 @@ void PostEffectsSample(inout float4 color, float2 hdrParams, float gamma) {
   }
 }
 
-void PreEffectsBlend(inout float3 color) {
+void PreEffectsBlend(inout float3 color, float3 scene_color) {
+  g_scene_color_pre_effects = scene_color;
   [branch]
-  if (RENODX_TONE_MAP_TYPE != 0.f) {
+  if (RENODX_TONE_MAP_TYPE != 0.f && CUSTOM_FX_METHOD == 0.f) {
     float lum = renodx::color::y::from::BT709(color.rgb);
     color.rgb = lerp(color.rgb, 2.f * color.rgb, saturate(lum));
+  }
+}
+
+void PostEffectsBlend(inout float3 post_fx_color) {
+  [branch]
+  if (RENODX_TONE_MAP_TYPE != 0.f && CUSTOM_FX_METHOD == 1.f) {
+    post_fx_color = g_scene_color_pre_effects * g_fx_color.w + (2 * max(0, g_fx_color.rgb)) + min(0, g_fx_color.rgb);
   }
 }
 
@@ -112,7 +133,7 @@ void PostTmFxSampleScene(inout float3 color, bool tonemap = false) {
   [branch]
   if (tonemap) {
     [branch] if (g_posttmfx_sample_count == 1.f) g_posttmfx_hdr = color.rgb;
-    color.rgb = renodx::tonemap::renodrt::NeutralSDR(color.rgb);
+    color = color * ComputeReinhardSmoothClampScale(color, 0.5f);
     [branch] if (g_posttmfx_sample_count == 1.f) g_posttmfx_sdr = color.rgb;
   }
 

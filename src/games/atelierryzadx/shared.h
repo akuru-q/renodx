@@ -25,6 +25,7 @@
 #define CUSTOM_SAT_STRENGTH                  shader_injection.custom_sat_strength
 #define CUSTOM_SAT_BRIGHTNESS                shader_injection.custom_sat_brightness
 #define CUSTOM_FLARE_EFFECT                  shader_injection.custom_flare_effect
+#define CUSTOM_FX_METHOD                     1.f
 
 #define RENODX_RENO_DRT_TONE_MAP_METHOD               renodx::tonemap::renodrt::config::tone_map_method::HERMITE_SPLINE
 #define RENODX_RENO_DRT_NEUTRAL_SDR_TONE_MAP_METHOD   renodx::tonemap::renodrt::config::tone_map_method::HERMITE_SPLINE
@@ -59,6 +60,7 @@ struct ShaderInjectData {
   float custom_sat_strength;
   float custom_sat_brightness;
   float custom_flare_effect;
+  float custom_fx_method;
 };
 
 #ifndef __cplusplus

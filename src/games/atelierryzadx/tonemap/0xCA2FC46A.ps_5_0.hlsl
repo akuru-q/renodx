@@ -136,9 +136,12 @@ void main(
   r2.xyz = r2.xyz / r3.xyz;
   r1.xyz = r2.xyz + r1.xyz;
 
-  PreEffectsBlend(r1.xyz);
+  PreEffectsBlend(r1.xyz, r0.xyz);
 
   r0.xyz = r0.xyz * r1.www + r1.xyz;
+
+  PostEffectsBlend(r0.xyz);
+
   r0.xyz = max(float3(0,0,0), r0.xyz);
   r1.xyz = smplBloom_Tex.Sample(smplBloom_s, v1.xy).xyz;
   r0.xyz = r1.xyz * fBloomWeight + r0.xyz;
